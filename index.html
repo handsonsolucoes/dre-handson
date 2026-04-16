@@ -1,192 +1,544 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Login — FinancePro DRE</title>
-  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* ── RESET ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --navy:        #0b1e3d;
+      --blue-dark:   #0f2d5e;
+      --blue-mid:    #1a4b8c;
+      --blue:        #2563c0;
+      --accent:      #3b82f6;
+      --accent-glow: rgba(59,130,246,.22);
+      --green:       #16a34a;
+      --green-faint: #dcfce7;
+      --red:         #dc2626;
+      --red-faint:   #fee2e2;
+      --white:       #ffffff;
+      --gray-50:     #f8fafc;
+      --gray-100:    #f1f5f9;
+      --gray-200:    #e2e8f0;
+      --gray-400:    #94a3b8;
+      --gray-500:    #64748b;
+      --gray-700:    #334155;
+      --gray-900:    #0f172a;
+      --rs: 8px;
+      --rm: 14px;
+      --rl: 22px;
+      --shadow-card: 0 24px 64px rgba(0,0,0,.22), 0 4px 16px rgba(0,0,0,.10);
+      --shadow-btn:  0 4px 16px rgba(37,99,192,.45);
+      --trans:       all .22s cubic-bezier(.4,0,.2,1);
+    }
+    html, body { min-height: 100vh; font-family: 'Inter', system-ui, sans-serif; font-size: 15px; color: var(--gray-900); -webkit-font-smoothing: antialiased; }
+
+    /* ── BACKGROUND ─────────────────────────────────────────── */
+    body {
+      background:
+        radial-gradient(ellipse 80% 55% at 15% 5%,  rgba(59,130,246,.16) 0%, transparent 60%),
+        radial-gradient(ellipse 55% 45% at 85% 92%, rgba(15,45,94,.24)   0%, transparent 60%),
+        linear-gradient(145deg, #080f1f 0%, #0b1e3d 35%, #0f2d5e 65%, #132248 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    /* Círculos decorativos */
+    body::before {
+      content: '';
+      position: fixed;
+      width: 580px; height: 580px;
+      top: -160px; right: -160px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(59,130,246,.10) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    body::after {
+      content: '';
+      position: fixed;
+      width: 420px; height: 420px;
+      bottom: -120px; left: -120px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(37,99,192,.14) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    /* ── CARD ───────────────────────────────────────────────── */
+    .card {
+      position: relative; z-index: 1;
+      width: 100%; max-width: 430px;
+      background: rgba(255,255,255,.975);
+      border-radius: var(--rl);
+      box-shadow: var(--shadow-card);
+      border: 1px solid rgba(255,255,255,.55);
+      padding: 46px 42px 38px;
+      /* Linha de destaque no topo */
+      overflow: hidden;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--blue-mid) 0%, var(--accent) 50%, var(--blue) 100%);
+    }
+
+    /* ── BRAND ──────────────────────────────────────────────── */
+    .brand { display: flex; align-items: center; gap: 11px; margin-bottom: 30px; }
+    .brand-icon {
+      width: 44px; height: 44px;
+      border-radius: 11px;
+      background: linear-gradient(135deg, var(--blue-mid), var(--blue));
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 14px rgba(37,99,192,.38);
+      flex-shrink: 0;
+    }
+    .brand-icon svg { width: 22px; height: 22px; }
+    .brand-name { font-size: 16px; font-weight: 800; color: var(--navy); letter-spacing: -.3px; line-height: 1; }
+    .brand-tagline { font-size: 11px; color: var(--gray-400); font-weight: 500; letter-spacing: .5px; text-transform: uppercase; margin-top: 2px; }
+
+    /* ── HEADING ────────────────────────────────────────────── */
+    .title { font-size: 24px; font-weight: 700; color: var(--gray-900); letter-spacing: -.4px; margin-bottom: 4px; }
+    .subtitle { font-size: 14px; color: var(--gray-500); margin-bottom: 28px; }
+
+    /* ── ALERTS ─────────────────────────────────────────────── */
+    .alert {
+      display: none;
+      padding: 12px 15px;
+      border-radius: var(--rs);
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 20px;
+      gap: 10px;
+      align-items: flex-start;
+      line-height: 1.45;
+    }
+    .alert.show { display: flex; }
+    .alert svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
+    .alert-body { flex: 1; }
+    .a-title { font-weight: 700; display: block; margin-bottom: 2px; }
+    .a-desc  { font-size: 12.5px; opacity: .85; }
+    .alert-err { background: var(--red-faint);   border: 1px solid rgba(220,38,38,.22);  color: #991b1b; }
+    .alert-ok  { background: var(--green-faint); border: 1px solid rgba(22,163,74,.22);  color: #166534; }
+
+    /* ── FORM ───────────────────────────────────────────────── */
+    .fg { margin-bottom: 18px; }
+    .fl {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11.5px; font-weight: 600; color: var(--gray-700);
+      letter-spacing: .3px; text-transform: uppercase; margin-bottom: 7px;
+    }
+    .fl svg { width: 12px; height: 12px; }
+
+    .wrap { position: relative; }
+    .ico {
+      position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+      color: var(--gray-400); pointer-events: none;
+      display: flex; align-items: center;
+    }
+    .ico svg { width: 16px; height: 16px; }
+
+    .fi {
+      width: 100%;
+      padding: 11px 40px 11px 41px;
+      border: 1.5px solid var(--gray-200);
+      border-radius: var(--rs);
+      font-size: 14px; font-family: inherit;
+      color: var(--gray-900); background: var(--gray-50);
+      outline: none; transition: var(--trans);
+    }
+    .fi::placeholder { color: var(--gray-400); }
+    .fi:hover:not(:focus) { border-color: var(--gray-400); background: var(--white); }
+    .fi:focus {
+      border-color: var(--accent); background: var(--white);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .fi.err { border-color: var(--red); box-shadow: 0 0 0 3px rgba(220,38,38,.12); }
+    .fi.no-pad-right { padding-right: 13px; }
+
+    /* Mostrar senha */
+    .eye-btn {
+      position: absolute; right: 11px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer; color: var(--gray-400);
+      padding: 4px; border-radius: 4px; display: flex; align-items: center;
+      transition: color .15s;
+    }
+    .eye-btn:hover { color: var(--blue-mid); }
+    .eye-btn svg { width: 17px; height: 17px; }
+
+    /* Linha esqueci */
+    .forgot-row { display: flex; justify-content: flex-end; margin-top: -10px; margin-bottom: 20px; }
+    .forgot-a {
+      font-size: 13px; font-weight: 500; color: var(--blue-mid);
+      text-decoration: none; cursor: pointer; transition: color .15s;
+    }
+    .forgot-a:hover { color: var(--blue); text-decoration: underline; }
+
+    /* ── BOTÃO PRINCIPAL ─────────────────────────────────────── */
+    .btn-main {
+      width: 100%;
+      padding: 13px;
+      background: linear-gradient(135deg, var(--blue-mid) 0%, var(--blue) 100%);
+      color: #fff;
+      border: none; border-radius: var(--rs);
+      font-size: 15px; font-weight: 700; font-family: inherit;
+      cursor: pointer; letter-spacing: .15px;
+      box-shadow: var(--shadow-btn);
+      transition: var(--trans);
+      display: flex; align-items: center; justify-content: center; gap: 9px;
+    }
+    .btn-main:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(37,99,192,.5); }
+    .btn-main:active:not(:disabled) { transform: translateY(0); }
+    .btn-main:disabled { opacity: .6; cursor: not-allowed; transform: none !important; }
+
+    /* Botão secundário (reset) */
+    .btn-sec {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #475569 0%, var(--blue-mid) 100%);
+      color: #fff; border: none; border-radius: var(--rs);
+      font-size: 15px; font-weight: 700; font-family: inherit;
+      cursor: pointer; box-shadow: 0 4px 14px rgba(71,85,105,.3);
+      transition: var(--trans);
+      display: flex; align-items: center; justify-content: center; gap: 9px;
+    }
+    .btn-sec:hover:not(:disabled) { transform: translateY(-1px); }
+    .btn-sec:disabled { opacity: .6; cursor: not-allowed; }
+
+    /* Spinner */
+    .spin {
+      width: 18px; height: 18px;
+      border: 2.5px solid rgba(255,255,255,.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: rotate .6s linear infinite;
+      display: none; flex-shrink: 0;
+    }
+    .loading .spin   { display: block; }
+    .loading .btxt   { display: none; }
+    @keyframes rotate { to { transform: rotate(360deg); } }
+
+    /* ── BACK LINK ───────────────────────────────────────────── */
+    .back-a {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 13px; font-weight: 500; color: var(--gray-500);
+      text-decoration: none; margin-top: 15px; cursor: pointer;
+      transition: color .15s;
+    }
+    .back-a:hover { color: var(--blue-mid); }
+    .back-a svg { width: 14px; height: 14px; }
+
+    /* ── FOOTER ─────────────────────────────────────────────── */
+    .foot { margin-top: 24px; text-align: center; font-size: 12px; color: var(--gray-400); }
+
+    /* ── FORM RESET (oculto) ─────────────────────────────────── */
+    #frm-reset { display: none; }
+    .reset-desc { font-size: 13.5px; color: var(--gray-500); line-height: 1.6; margin-bottom: 22px; }
+
+    /* ── RESPONSIVE ─────────────────────────────────────────── */
+    @media (max-width: 480px) {
+      .card { padding: 34px 22px 28px; }
+      .title { font-size: 21px; }
+    }
+  </style>
 </head>
 <body>
 
-<div class="login-screen">
-  <div class="login-box">
-    <div class="login-logo">FinancePro</div>
-    <h1 class="login-title">Bem-vindo</h1>
-    <p class="login-sub">Painel de Gestão Financeira</p>
+<div class="card" role="main" aria-label="Tela de login">
 
-    <!-- Mensagem de erro -->
-    <div class="login-error" id="login-error" role="alert"></div>
-
-    <!-- Mensagem de sucesso (recuperação de senha) -->
-    <div class="login-success" id="login-success" role="status"></div>
-
-    <!-- Formulário de login -->
-    <div id="form-login">
-      <label class="form-label" for="email">E-mail</label>
-      <input
-        class="form-input"
-        id="email"
-        type="email"
-        placeholder="seu@email.com"
-        autocomplete="email"
-        required
-      />
-
-      <label class="form-label" for="password">Senha</label>
-      <input
-        class="form-input"
-        id="password"
-        type="password"
-        placeholder="••••••••"
-        autocomplete="current-password"
-        required
-      />
-
-      <button class="btn-primary" id="btn-login" type="button">
-        Entrar
-      </button>
-
-      <a class="forgot-link" id="link-forgot" tabindex="0">
-        Esqueci minha senha
-      </a>
+  <!-- Brand -->
+  <div class="brand">
+    <div class="brand-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
     </div>
-
-    <!-- Formulário de recuperação de senha (oculto por padrão) -->
-    <div id="form-reset" style="display:none">
-      <p style="font-size:13px;color:#5a5a56;margin-bottom:16px;">
-        Informe seu e-mail e enviaremos um link para redefinir sua senha.
-      </p>
-
-      <label class="form-label" for="reset-email">E-mail</label>
-      <input
-        class="form-input"
-        id="reset-email"
-        type="email"
-        placeholder="seu@email.com"
-        autocomplete="email"
-        required
-      />
-
-      <button class="btn-primary" id="btn-reset" type="button">
-        Enviar link de recuperação
-      </button>
-
-      <a class="forgot-link" id="link-back-login" tabindex="0">
-        ← Voltar para o login
-      </a>
+    <div>
+      <div class="brand-name">FinancePro</div>
+      <div class="brand-tagline">Gestão Financeira · DRE</div>
     </div>
   </div>
+
+  <!-- ╔══ FORM LOGIN ══════════════════════════════════════╗ -->
+  <div id="frm-login">
+    <h1 class="title">Bem-vindo de volta</h1>
+    <p class="subtitle">Acesse sua conta para continuar</p>
+
+    <!-- Alerta de erro -->
+    <div class="alert alert-err" id="al-err" role="alert" aria-live="polite">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <div class="alert-body">
+        <span class="a-title">Não foi possível entrar</span>
+        <span class="a-desc" id="al-err-msg">E-mail ou senha incorretos.</span>
+      </div>
+    </div>
+
+    <!-- Alerta de sucesso (vindo de reset-password.html) -->
+    <div class="alert alert-ok" id="al-ok" role="status" aria-live="polite">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <div class="alert-body">
+        <span class="a-title" id="al-ok-title">Sucesso</span>
+        <span class="a-desc"  id="al-ok-msg"></span>
+      </div>
+    </div>
+
+    <!-- E-mail -->
+    <div class="fg">
+      <label class="fl" for="email">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        E-mail
+      </label>
+      <div class="wrap">
+        <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></span>
+        <input class="fi" id="email" type="email" placeholder="seu@email.com" autocomplete="email" inputmode="email" spellcheck="false" required aria-required="true"/>
+      </div>
+    </div>
+
+    <!-- Senha -->
+    <div class="fg">
+      <label class="fl" for="password">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Senha
+      </label>
+      <div class="wrap">
+        <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+        <input class="fi" id="password" type="password" placeholder="••••••••" autocomplete="current-password" required aria-required="true"/>
+        <button class="eye-btn" id="btn-eye" type="button" aria-label="Mostrar ou ocultar senha">
+          <svg id="ico-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg id="ico-eyeoff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Esqueci -->
+    <div class="forgot-row">
+      <a class="forgot-a" id="lnk-forgot" role="button" tabindex="0" aria-label="Ir para recuperação de senha">Esqueci minha senha</a>
+    </div>
+
+    <!-- Botão entrar -->
+    <button class="btn-main" id="btn-login" type="button">
+      <span class="spin" aria-hidden="true"></span>
+      <span class="btxt">Entrar na plataforma</span>
+    </button>
+  </div>
+  <!-- ╚══════════════════════════════════════════════════╝ -->
+
+  <!-- ╔══ FORM RECUPERAÇÃO ════════════════════════════════╗ -->
+  <div id="frm-reset">
+    <h1 class="title">Recuperar acesso</h1>
+    <p class="reset-desc">
+      Informe o e-mail cadastrado. Enviaremos um link seguro para você criar uma nova senha — o link expira em 1 hora.
+    </p>
+
+    <div class="alert alert-err" id="rs-al-err" role="alert">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <div class="alert-body">
+        <span class="a-title">Não foi possível enviar</span>
+        <span class="a-desc" id="rs-err-msg"></span>
+      </div>
+    </div>
+
+    <div class="alert alert-ok" id="rs-al-ok" role="status">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <div class="alert-body">
+        <span class="a-title">E-mail enviado!</span>
+        <span class="a-desc" id="rs-ok-msg"></span>
+      </div>
+    </div>
+
+    <div id="rs-fields">
+      <div class="fg">
+        <label class="fl" for="rs-email">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          E-mail cadastrado
+        </label>
+        <div class="wrap">
+          <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></span>
+          <input class="fi no-pad-right" id="rs-email" type="email" placeholder="seu@email.com" autocomplete="email" inputmode="email" spellcheck="false"/>
+        </div>
+      </div>
+      <button class="btn-sec" id="btn-rs" type="button">
+        <span class="spin" aria-hidden="true"></span>
+        <span class="btxt">Enviar link de recuperação</span>
+      </button>
+    </div>
+
+    <a class="back-a" id="lnk-back" role="button" tabindex="0">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      Voltar para o login
+    </a>
+  </div>
+  <!-- ╚══════════════════════════════════════════════════╝ -->
+
+  <div class="foot">© 2025 FinancePro · Todos os direitos reservados</div>
 </div>
 
 <script type="module">
   import { login, sendPasswordReset, redirectIfLoggedIn } from './assets/js/auth.js';
 
-  // Se já estiver logado, vai direto para o app
+  // Redireciona se já estiver logado
   await redirectIfLoggedIn('/app.html');
 
-  const emailInput    = document.getElementById('email');
-  const passwordInput = document.getElementById('password');
-  const btnLogin      = document.getElementById('btn-login');
-  const errorEl       = document.getElementById('login-error');
-  const successEl     = document.getElementById('login-success');
-  const formLogin     = document.getElementById('form-login');
-  const formReset     = document.getElementById('form-reset');
-  const linkForgot    = document.getElementById('link-forgot');
-  const linkBack      = document.getElementById('link-back-login');
-  const resetEmailEl  = document.getElementById('reset-email');
-  const btnReset      = document.getElementById('btn-reset');
+  // ── Elementos ─────────────────────────────────────────────
+  const frmLogin  = document.getElementById('frm-login');
+  const frmReset  = document.getElementById('frm-reset');
 
-  // Mostra mensagem de erro
+  const emailEl   = document.getElementById('email');
+  const passEl    = document.getElementById('password');
+  const btnLogin  = document.getElementById('btn-login');
+  const btnEye    = document.getElementById('btn-eye');
+  const icoEye    = document.getElementById('ico-eye');
+  const icoEyeOff = document.getElementById('ico-eyeoff');
+
+  const alErr     = document.getElementById('al-err');
+  const alErrMsg  = document.getElementById('al-err-msg');
+  const alOk      = document.getElementById('al-ok');
+  const alOkTitle = document.getElementById('al-ok-title');
+  const alOkMsg   = document.getElementById('al-ok-msg');
+
+  const lnkForgot = document.getElementById('lnk-forgot');
+  const lnkBack   = document.getElementById('lnk-back');
+  const rsEmailEl = document.getElementById('rs-email');
+  const btnRs     = document.getElementById('btn-rs');
+  const rsAlErr   = document.getElementById('rs-al-err');
+  const rsErrMsg  = document.getElementById('rs-err-msg');
+  const rsAlOk    = document.getElementById('rs-al-ok');
+  const rsOkMsg   = document.getElementById('rs-ok-msg');
+  const rsFields  = document.getElementById('rs-fields');
+
+  // ── Verificar se veio de reset-password.html com sucesso ──
+  const sp = new URLSearchParams(window.location.search);
+  if (sp.get('reset') === 'ok') {
+    alOkTitle.textContent = 'Senha atualizada!';
+    alOkMsg.textContent   = 'Sua nova senha foi salva. Faça login para continuar.';
+    alOk.classList.add('show');
+    history.replaceState({}, '', location.pathname);
+  }
+
+  // ── Mostrar/ocultar senha ──────────────────────────────────
+  btnEye.addEventListener('click', () => {
+    const show = passEl.type === 'password';
+    passEl.type = show ? 'text' : 'password';
+    icoEye.style.display    = show ? 'none'  : '';
+    icoEyeOff.style.display = show ? ''      : 'none';
+    btnEye.setAttribute('aria-label', show ? 'Ocultar senha' : 'Mostrar senha');
+  });
+
+  // ── Helpers ────────────────────────────────────────────────
+  function clearAlerts() {
+    alErr.classList.remove('show');
+    alOk.classList.remove('show');
+    emailEl.classList.remove('err');
+    passEl.classList.remove('err');
+  }
   function showError(msg) {
-    errorEl.textContent = msg;
-    errorEl.style.display = 'block';
-    successEl.style.display = 'none';
+    alErrMsg.textContent = msg;
+    alErr.classList.add('show');
+    alOk.classList.remove('show');
+  }
+  function setLoading(btn, state) {
+    btn.disabled = state;
+    btn.classList.toggle('loading', state);
   }
 
-  // Mostra mensagem de sucesso
-  function showSuccess(msg) {
-    successEl.textContent = msg;
-    successEl.style.display = 'block';
-    errorEl.style.display = 'none';
-  }
+  // ── LOGIN ──────────────────────────────────────────────────
+  async function doLogin() {
+    clearAlerts();
+    const email    = emailEl.value.trim();
+    const password = passEl.value;
 
-  // Limpa mensagens
-  function clearMessages() {
-    errorEl.style.display = 'none';
-    successEl.style.display = 'none';
-  }
-
-  // ── LOGIN ──
-  async function handleLogin() {
-    clearMessages();
-    const email    = emailInput.value.trim();
-    const password = passwordInput.value;
-
-    if (!email || !password) {
-      showError('Preencha e-mail e senha.');
-      return;
+    if (!email) {
+      emailEl.classList.add('err'); emailEl.focus();
+      showError('Informe seu e-mail para continuar.'); return;
+    }
+    if (!password) {
+      passEl.classList.add('err'); passEl.focus();
+      showError('Informe sua senha para continuar.'); return;
     }
 
-    btnLogin.disabled   = true;
-    btnLogin.textContent = 'Entrando...';
-
+    setLoading(btnLogin, true);
     const result = await login(email, password);
 
     if (!result.success) {
       showError(result.message);
-      btnLogin.disabled   = false;
-      btnLogin.textContent = 'Entrar';
+      passEl.value = '';
+      [emailEl, passEl].forEach(el => el.classList.add('err'));
+      setLoading(btnLogin, false);
       return;
     }
 
-    // Login com sucesso — redireciona para o app
+    // Sucesso — redireciona
     window.location.href = '/app.html';
   }
 
-  // Clique no botão ou Enter no campo de senha
-  btnLogin.addEventListener('click', handleLogin);
-  passwordInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
-  emailInput.addEventListener('keydown', e => { if (e.key === 'Enter') passwordInput.focus(); });
+  btnLogin.addEventListener('click', doLogin);
+  emailEl.addEventListener('keydown',  e => { if (e.key === 'Enter') { e.preventDefault(); passEl.focus(); } });
+  passEl.addEventListener('keydown',   e => { if (e.key === 'Enter') { e.preventDefault(); doLogin(); } });
+  [emailEl, passEl].forEach(el => el.addEventListener('input', () => el.classList.remove('err')));
 
-  // ── RECUPERAÇÃO DE SENHA ──
-  linkForgot.addEventListener('click', () => {
-    clearMessages();
-    formLogin.style.display = 'none';
-    formReset.style.display = 'block';
-    // Pré-preenche o e-mail se já digitado
-    resetEmailEl.value = emailInput.value;
-  });
-
-  linkBack.addEventListener('click', () => {
-    clearMessages();
-    formReset.style.display = 'none';
-    formLogin.style.display = 'block';
-  });
-
-  async function handleReset() {
-    clearMessages();
-    const email = resetEmailEl.value.trim();
-    if (!email) { showError('Informe seu e-mail.'); return; }
-
-    btnReset.disabled    = true;
-    btnReset.textContent = 'Enviando...';
-
-    const result = await sendPasswordReset(email);
-
-    if (!result.success) {
-      showError(result.message);
-    } else {
-      showSuccess('Link enviado! Verifique sua caixa de entrada (e o spam).');
-      formReset.style.display = 'none';
-      formLogin.style.display = 'block';
-    }
-
-    btnReset.disabled    = false;
-    btnReset.textContent = 'Enviar link de recuperação';
+  // ── SWITCH para recuperação ────────────────────────────────
+  function goToReset() {
+    clearAlerts();
+    rsAlErr.classList.remove('show');
+    rsAlOk.classList.remove('show');
+    rsFields.style.display = '';
+    btnRs.style.display = '';
+    frmLogin.style.display  = 'none';
+    frmReset.style.display  = 'block';
+    rsEmailEl.value = emailEl.value;
+    rsEmailEl.focus();
+  }
+  function goToLogin() {
+    frmReset.style.display = 'none';
+    frmLogin.style.display = 'block';
+    emailEl.focus();
   }
 
-  btnReset.addEventListener('click', handleReset);
-  resetEmailEl.addEventListener('keydown', e => { if (e.key === 'Enter') handleReset(); });
+  lnkForgot.addEventListener('click', goToReset);
+  lnkForgot.addEventListener('keydown', e => { if (e.key === 'Enter') goToReset(); });
+  lnkBack.addEventListener('click', goToLogin);
+  lnkBack.addEventListener('keydown', e => { if (e.key === 'Enter') goToLogin(); });
+
+  // ── ENVIAR E-MAIL DE RECUPERAÇÃO ───────────────────────────
+  async function doReset() {
+    rsAlErr.classList.remove('show');
+    rsAlOk.classList.remove('show');
+    const email = rsEmailEl.value.trim();
+
+    if (!email) {
+      rsEmailEl.classList.add('err');
+      rsErrMsg.textContent = 'Informe seu e-mail.';
+      rsAlErr.classList.add('show');
+      return;
+    }
+
+    setLoading(btnRs, true);
+    const result = await sendPasswordReset(email);
+    setLoading(btnRs, false);
+
+    if (!result.success) {
+      rsErrMsg.textContent = result.message || 'Verifique o endereço de e-mail.';
+      rsAlErr.classList.add('show');
+      return;
+    }
+
+    // Sucesso: mostra mensagem, esconde campos
+    rsOkMsg.textContent = `Verifique a caixa de entrada de "${email}" e também a pasta de spam.`;
+    rsAlOk.classList.add('show');
+    rsFields.style.display = 'none';
+  }
+
+  btnRs.addEventListener('click', doReset);
+  rsEmailEl.addEventListener('keydown', e => { if (e.key === 'Enter') doReset(); });
+  rsEmailEl.addEventListener('input', () => rsEmailEl.classList.remove('err'));
 </script>
 </body>
 </html>
