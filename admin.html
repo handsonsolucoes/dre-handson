@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Administração — FinancePro DRE</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body style="display:flex;flex-direction:column;min-height:100vh">
+
+<!-- LOADING -->
+<div id="loading">Verificando permissões…</div>
+
+<!-- CONTEÚDO (só aparece se for admin) -->
+<div id="main-content" style="display:none;flex-direction:column;flex:1">
+
+  <!-- Barra superior -->
+  <div class="topbar">
+    <div class="topbar-brand">FinancePro — Admin</div>
+    <div class="topbar-right">
+      <a href="app.html" class="topbar-btn">← Dashboard</a>
+      <button class="topbar-btn" id="btn-logout">Sair</button>
+    </div>
+  </div>
+
+  <div class="main" style="max-width:1100px;margin:0 auto;width:100%;padding:24px 22px">
+
+    <div class="page-header">
+      <div>
+        <div class="page-title">Área Administrativa</div>
+        <div class="page-sub">Gerencie usuários, empresas e permissões</div>
+      </div>
+    </div>
+
+    <!-- SEÇÃO: Criar Usuário -->
+    <div class="card">
+      <div class="card-title">➕ Criar Novo Usuário</div>
+      <p class="text-muted" style="margin-bottom:16px">
+        O usuário receberá as credenciais de acesso e só poderá ver as empresas vinculadas ao perfil dele.
+      </p>
+
+      <form id="create-user-form" autocomplete="off">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="new-user-name">Nome Completo *</label>
+            <input id="new-user-name" type="text" placeholder="João da Silva" required />
+          </div>
+          <div class="form-group">
+            <label for="new-user-email">E-mail *</label>
+            <input id="new-user-email" type="email" placeholder="joao@empresa.com" required autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="new-user-password">Senha *
+              <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--tx3)">
+                (mín. 8 caracteres)
+              </span>
+            </label>
+            <input id="new-user-password" type="password" placeholder="••••••••" required autocomplete="new-password" />
+          </div>
+          <div class="form-group">
+            <label for="new-user-role">Perfil *</label>
+            <select id="new-user-role" required>
+              <option value="">Selecionar…</option>
+              <option value="analista">Analista</option>
+              <option value="cliente">Cliente</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="new-user-company">Empresa vinculada
+            <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--tx3)">
+              (analistas e clientes só verão esta empresa)
+            </span>
+          </label>
+          <select id="new-user-company">
+            <option value="">Nenhuma empresa</option>
+            <!-- Preenchido pelo admin.js -->
+          </select>
+        </div>
+
+        <button type="submit" class="btn btn-blue" id="btn-create-user">
+          Criar Usuário
+        </button>
+
+        <!-- Mensagem de sucesso/erro -->
+        <div class="form-msg" id="create-user-msg"></div>
+      </form>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- SEÇÃO: Criar Empresa -->
+    <div class="card">
+      <div class="card-title">🏢 Criar Nova Empresa</div>
+
+      <form id="create-company-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="new-company-name">Nome da Empresa *</label>
+            <input id="new-company-name" type="text" placeholder="CLAC Escola de Artes" required />
+          </div>
+          <div class="form-group">
+            <label for="new-company-cnpj">CNPJ</label>
+            <input id="new-company-cnpj" type="text" placeholder="00.000.000/0001-00" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="new-company-segment">Segmento</label>
+          <input id="new-company-segment" type="text" placeholder="Educação, Varejo…" />
+        </div>
+        <button type="submit" class="btn btn-green" id="btn-create-company">Criar Empresa</button>
+        <div class="form-msg" id="create-company-msg"></div>
+      </form>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- SEÇÃO: Lista de Usuários -->
+    <div class="card">
+      <div class="card-title">👥 Usuários Cadastrados</div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>E-mail</th>
+              <th>Perfil</th>
+              <th>Empresas</th>
+              <th>Criado em</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody">
+            <tr>
+              <td colspan="5" style="text-align:center;color:#999">Carregando usuários…</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SEÇÃO: Lista de Empresas -->
+    <div class="card">
+      <div class="card-title">🏢 Empresas Cadastradas</div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>ID</th>
+            </tr>
+          </thead>
+          <tbody id="companies-tbody">
+            <tr>
+              <td colspan="2" style="text-align:center;color:#999">Carregando empresas…</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- admin.js — protege a página e carrega os dados -->
+<script type="module" src="assets/js/admin.js"></script>
+</body>
+</html>
