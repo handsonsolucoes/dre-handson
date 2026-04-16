@@ -110,8 +110,8 @@ export async function sendPasswordReset(email) {
   const { error } = await supabase.auth.resetPasswordForEmail(
     email.trim().toLowerCase(),
     {
-      // Redireciona para app.html onde o usuário pode definir nova senha
-      redirectTo: `${window.location.origin}/app.html`,
+      // Redireciona para reset-password.html, que detecta o token e exibe o formulário
+      redirectTo: `${window.location.origin}/reset-password.html`,
     }
   );
 
