@@ -149,13 +149,17 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .dre-t th:first-child,
 .dre-t td:first-child{
   position:sticky;left:0;z-index:2;
-  background:inherit; /* inherits row bg */
+  background:#fff;
   text-align:left;
-  box-shadow:2px 0 4px rgba(0,0,0,.06);
+  box-shadow:3px 0 6px rgba(0,0,0,.08);
   min-width:220px;
 }
 /* First column header: also sticky top AND left → highest z-index */
 .dre-t thead th:first-child{z-index:5;background:#ecedf2}
+/* Explicit background per row type so sticky cell is never transparent over scrolled content */
+.dre-t tr.rt td:first-child{background:#e9eaf0}
+.dre-t tr.rs td:first-child{background:var(--acb)}
+.dre-t tr:not(.rt):not(.rs):hover td:first-child{background:rgba(30,79,170,.025)}
 
 .dre-t td{padding:7px 13px;border-bottom:1px solid var(--bd2);text-align:right;white-space:nowrap}
 .dre-t tr:last-child td{border-bottom:none}
@@ -249,7 +253,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Importar
         </button>
-        <button class="btn btn-pdf" id="btn-pdf-cc" onclick="exportPDF('cc')" disabled>
+        <button class="btn btn-pdf" id="btn-pdf-cc" onclick="openPdfFilter('cc')" disabled>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           Exportar PDF
         </button>
@@ -267,7 +271,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Importar
         </button>
-        <button class="btn btn-pdf" id="btn-pdf-ger" onclick="exportPDF('ger')" disabled>
+        <button class="btn btn-pdf" id="btn-pdf-ger" onclick="openPdfFilter('ger')" disabled>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           Exportar PDF
         </button>
@@ -301,26 +305,76 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 
 <!-- MODAL: Rateio Config -->
 <div class="mov" id="mrateio">
-  <div class="modal" style="width:540px">
+  <div class="modal" style="width:580px">
     <div class="mh"><div class="mt">⚙ Configurar Rateio de CC Geral</div><button class="mx" onclick="closeModal('mrateio')">×</button></div>
     <div class="mb">
       <div class="rateio-note">
-        Selecione o <strong>Centro de Custo Geral</strong> (que será distribuído) e os <strong>CCs receptores</strong>.<br>
-        O rateio é proporcional à participação de cada CC na <strong>Receita Bruta</strong> total.<br>
-        As linhas rateadas são: Deduções, Custos Operacionais, Despesas Operacionais e demais grupos de nível 01.
+        Selecione <strong>um ou mais CCs Gerais</strong> (origens do rateio) e os <strong>CCs receptores</strong>.<br>
+        O rateio é proporcional à participação de cada receptor na <strong>Receita Bruta</strong> total.<br>
+        As linhas rateadas são os grupos de nível 01 (Deduções, Custos, Despesas, etc.).
       </div>
       <div class="fg">
-        <label>Centro de Custo Geral (origem do rateio)</label>
-        <select id="rateio-origem" style="width:100%;padding:9px 11px;border:1.5px solid var(--bd);border-radius:var(--rs);font-size:13px;font-family:inherit;outline:none"></select>
+        <label>CCs Gerais / Origens <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--tx3)">(serão distribuídos — podem ser mais de um)</span></label>
+        <div class="cc-checkbox-grid" id="rateio-origens"></div>
       </div>
-      <div class="fg">
-        <label>CCs receptores <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--tx3)">(selecione todos que receberão o rateio)</span></label>
+      <div class="fg" style="margin-top:4px">
+        <label>CCs Receptores <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--tx3)">(receberão o rateio proporcional)</span></label>
         <div class="cc-checkbox-grid" id="rateio-receptores"></div>
       </div>
     </div>
     <div class="mf">
+      <button class="btn btn-outline" onclick="clearRateio()">Limpar Rateio</button>
       <button class="btn btn-outline" onclick="closeModal('mrateio')">Cancelar</button>
       <button class="btn btn-primary" onclick="applyRateio()">Aplicar Rateio</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PDF Filter (pergunta filtros antes de exportar) -->
+<div class="mov" id="mpdf-filter">
+  <div class="modal" style="width:520px">
+    <div class="mh"><div class="mt" id="pdf-filter-title">📄 Configurar Exportação PDF</div><button class="mx" onclick="closeModal('mpdf-filter')">×</button></div>
+    <div class="mb">
+      <div class="rateio-note" style="background:var(--acb);border-color:rgba(30,79,170,.18);color:var(--ac)">
+        Escolha os filtros que serão aplicados ao relatório. O PDF exportará exatamente os dados configurados abaixo.
+      </div>
+      <!-- Períodos -->
+      <div class="fg">
+        <label>Períodos a exportar</label>
+        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+          <button class="btn-tog on" id="pdf-acum-tog" onclick="W._pdfTogAcum()">Acumulado</button>
+          <button class="btn-tog" id="pdf-mes-tog" onclick="W._pdfTogMes()">Mês a mês</button>
+        </div>
+        <div class="pills" id="pdf-period-pills" style="display:none"></div>
+      </div>
+      <!-- CCs (só para CC) -->
+      <div id="pdf-cc-section" style="display:none">
+        <div class="fg">
+          <label>Centros de custo a incluir</label>
+          <div style="display:flex;gap:5px;flex-wrap:wrap" id="pdf-cc-pills"></div>
+        </div>
+      </div>
+      <!-- AV/AH (só para GER) -->
+      <div id="pdf-ger-opts" style="display:none">
+        <div class="fg">
+          <label>Análises a incluir</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;cursor:pointer">
+              <input type="checkbox" id="pdf-opt-av" style="width:15px;height:15px;accent-color:var(--ac)"> Análise Vertical (%)
+            </label>
+            <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;cursor:pointer">
+              <input type="checkbox" id="pdf-opt-ah" style="width:15px;height:15px;accent-color:var(--ac)"> Análise Horizontal (%)
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-outline" onclick="closeModal('mpdf-filter')">Cancelar</button>
+      <button class="btn btn-pdf" onclick="confirmPdfExport()" style="padding:8px 18px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Gerar PDF
+      </button>
     </div>
   </div>
 </div>
@@ -364,7 +418,7 @@ const S = {
   upType:null, upFile:null,
   data:{ cc:null, ccMeta:null, ger:null, gerMeta:null },
   parsed:{ cc:null, ger:null },
-  rateio:{ origem:null, receptores:[] },  // CC rateio config
+  rateio:{ origens:[], receptores:[] },  // CC rateio config
   // Snapshot of current CC view state for PDF
   ccView:{ selP:null, selCC:'total', ccNames:[] },
   gerView:{ selP:null, isAcum:true, showAV:false, showAH:false },
@@ -484,10 +538,15 @@ function buildGroupMap(cats){ const g={}; const stack=[]; cats.forEach((cat,i)=>
 function openRateioCfg(){
   const p=S.parsed.cc; if(!p)return;
   const ccNames=p.ccCols.map(x=>x.name);
-  const sel=el('rateio-origem');
-  sel.innerHTML=`<option value="">-- selecionar --</option>`+ccNames.map(c=>`<option value="${c}" ${S.rateio.origem===c?'selected':''}>${c}</option>`).join('');
-  const grid=el('rateio-receptores');
-  grid.innerHTML=ccNames.map(c=>`
+  // Origins grid (multi-select)
+  el('rateio-origens').innerHTML=ccNames.map(c=>`
+    <label class="cc-checkbox-item${S.rateio.origens.includes(c)?' sel':''}">
+      <input type="checkbox" value="${c}" ${S.rateio.origens.includes(c)?'checked':''}
+        onchange="this.closest('label').classList.toggle('sel',this.checked)">
+      ${c}
+    </label>`).join('');
+  // Receptors grid
+  el('rateio-receptores').innerHTML=ccNames.map(c=>`
     <label class="cc-checkbox-item${S.rateio.receptores.includes(c)?' sel':''}">
       <input type="checkbox" value="${c}" ${S.rateio.receptores.includes(c)?'checked':''}
         onchange="this.closest('label').classList.toggle('sel',this.checked)">
@@ -496,45 +555,56 @@ function openRateioCfg(){
   openModal('mrateio');
 }
 function applyRateio(){
-  const origem=el('rateio-origem').value;
-  if(!origem){ toast('Selecione o CC de origem','error'); return; }
+  const origens=[...document.querySelectorAll('#rateio-origens input:checked')].map(cb=>cb.value);
   const receptores=[...document.querySelectorAll('#rateio-receptores input:checked')].map(cb=>cb.value);
+  if(!origens.length){ toast('Selecione ao menos um CC Geral (origem)','error'); return; }
   if(!receptores.length){ toast('Selecione ao menos um CC receptor','error'); return; }
-  S.rateio={origem,receptores};
+  // Validate no overlap
+  const overlap=origens.filter(o=>receptores.includes(o));
+  if(overlap.length){ toast('Um CC não pode ser origem e receptor ao mesmo tempo: '+overlap.join(', '),'error'); return; }
+  S.rateio={origens, receptores};
   closeModal('mrateio');
-  // Re-render CC with rateio applied
   const p=S.parsed.cc; if(!p)return;
   renderCC(el('cc-con'),p,S.data.ccMeta);
-  toast('Rateio aplicado!','success');
+  toast('Rateio aplicado com '+origens.length+' CC(s) geral(is)!','success');
+}
+function clearRateio(){
+  S.rateio={origens:[],receptores:[]};
+  closeModal('mrateio');
+  const p=S.parsed.cc; if(!p)return;
+  renderCC(el('cc-con'),p,S.data.ccMeta);
+  toast('Rateio removido.','success');
 }
 
 /* Apply rateio logic to a summed row set.
-   For each top-level DRE group (level 1), distribute the "origem" CC values
+   For each top-level DRE group (level 1), distribute ALL "origens" CC values
    proportionally to each "receptor" CC based on their share of Receita Bruta. */
 function applyRateioToRows(rowBycat, cats, ccNames){
-  if(!S.rateio.origem||!S.rateio.receptores.length) return;
-  const orig=S.rateio.origem; const recs=S.rateio.receptores;
-  // Get Receita Bruta (cat level 0 or containing '01T') per CC
+  if(!S.rateio.origens||!S.rateio.origens.length||!S.rateio.receptores.length) return;
+  const origs=S.rateio.origens; const recs=S.rateio.receptores;
+  // Get Receita Bruta per CC to calculate shares
   const recCat=cats.find(c=>/01T/.test(c));
   const recRow=recCat?rowBycat[recCat]:null;
   if(!recRow) return;
   const totalRec=recs.reduce((s,cc)=>s+(recRow.cc[cc]||0),0);
   if(!totalRec) return;
-  // For each level-1 category, move valor from origem to receptors proportionally
+  // Pre-compute share per receptor
+  const shares={};
+  recs.forEach(cc=>{ shares[cc]=totalRec>0?(recRow.cc[cc]||0)/totalRec:0; });
+
   cats.forEach(cat=>{
-    if(catLevel(cat)!==1) return; // only top-level sections
+    if(catLevel(cat)!==1) return; // only top-level sections (level 1)
     const row=rowBycat[cat]; if(!row) return;
-    const origVal=row.cc[orig]||0;
-    if(origVal===0) return;
-    // Distribute to each receptor based on their RB share
+    // Sum total value from ALL origem CCs for this row
+    const totalOrigVal=origs.reduce((s,orig)=>s+(row.cc[orig]||0),0);
+    if(totalOrigVal===0) return;
+    // Distribute proportionally to receptors
     recs.forEach(cc=>{
-      const recRB=recRow.cc[cc]||0;
-      const share=totalRec>0?recRB/totalRec:0;
-      row.cc[cc]=(row.cc[cc]||0)+origVal*share;
+      row.cc[cc]=(row.cc[cc]||0)+totalOrigVal*shares[cc];
     });
-    // Zero out the origen for this category (it's been distributed)
-    row.cc[orig]=0;
-    // Also update valor total
+    // Zero out all origem CCs for this row
+    origs.forEach(orig=>{ row.cc[orig]=0; });
+    // Recalculate total valor (sum of all non-hidden CCs)
     row.valor=ccNames.reduce((s,cc)=>s+(row.cc[cc]||0),0);
   });
 }
@@ -543,8 +613,8 @@ function applyRateioToRows(rowBycat, cats, ccNames){
 function renderCC(con, parsed, meta){
   const{ccCols,data,periods}=parsed;
   const ccNames=ccCols.map(x=>x.name);
-  // Remove origem from displayed CCs if rateio configured
-  const displayCCs=S.rateio.origem?ccNames.filter(c=>c!==S.rateio.origem):ccNames;
+  // Remove origens from displayed CCs if rateio configured
+  const displayCCs=S.rateio.origens.length?ccNames.filter(c=>!S.rateio.origens.includes(c)):ccNames;
   let selP=new Set([periods[periods.length-1]||'']);
   let selCC='total', lastI=-1;
   const cats=data.reduce((a,r)=>{ if(!a.includes(r.cat))a.push(r.cat); return a; },[]);
@@ -596,8 +666,8 @@ function renderCC(con, parsed, meta){
   }
 
   // Rateio badge
-  const ratBadge=S.rateio.origem
-    ?`<span class="badge bg-gn" style="font-size:11px">✓ Rateio ativo: ${S.rateio.origem}</span>`:'';
+  const ratBadge=S.rateio.origens.length
+    ?`<span class="badge bg-gn" style="font-size:11px">✓ Rateio: ${S.rateio.origens.join(', ')}</span>`:'';
   const pillsH=periods.map((p,i)=>`<span class="pill${selP.has(p)?' active':''}" data-i="${i}" data-p="${p}" onclick="W._ccp(event,'${p}',${i})">${p}</span>`).join('');
   const ccH=`<span class="chip active" onclick="W._ccCC(this,'total')">Todos</span>`+displayCCs.map(c=>`<span class="chip" onclick="W._ccCC(this,'${c.replace(/'/g,"&#39;")}')">${c}</span>`).join('');
   const fb=meta?`<div class="file-bar"><span>📄</span><div class="file-bar-name">${meta.name}</div><div class="file-bar-date">${meta.date}</div>
@@ -861,8 +931,8 @@ function renderGer(con, parsed, meta){
     data:{
       labels:lbs,
       datasets:[
-        {data:mcArr,borderColor:'#b45309',backgroundColor:'rgba(180,83,9,.08)',tension:0.35,pointRadius:3.5,fill:true,borderWidth:2,label:'Mg. Contr.',showLabels:true},
-        {data:cmvArr,borderColor:'#b91c1c',backgroundColor:'transparent',tension:0.35,pointRadius:3,fill:false,borderWidth:1.8,borderDash:[4,3],label:'% CMV',showLabels:true}
+        {data:mcArr,borderColor:'#b45309',backgroundColor:'rgba(180,83,9,.08)',tension:0.35,pointRadius:3.5,fill:true,borderWidth:2,label:'Mg. Contr.',showLabels:false},
+        {data:cmvArr,borderColor:'#b91c1c',backgroundColor:'transparent',tension:0.35,pointRadius:3,fill:false,borderWidth:1.8,borderDash:[4,3],label:'% CMV',showLabels:false}
       ]
     },
     options:{
@@ -959,78 +1029,178 @@ function initScrollSync(trackId, thumbId, scrollId){
   });
 }
 
+/* ═══════════════════════ PDF FILTER MODAL ═══════════════════════ */
+let _pdfType=null;
+
+function openPdfFilter(type){
+  _pdfType=type;
+  el('pdf-filter-title').textContent=type==='cc'?'📄 Exportar DRE por Centro de Custo':'📄 Exportar DRE Gerencial';
+
+  const p=type==='cc'?S.parsed.cc:S.parsed.ger;
+  if(!p){ toast('Nenhum dado disponível','error'); return; }
+  const periods=p.periods;
+
+  // Acumulado/mês toggle state
+  let pdfAcum=true;
+  el('pdf-acum-tog').classList.add('on');
+  el('pdf-mes-tog').classList.remove('on');
+  el('pdf-period-pills').style.display='none';
+
+  W._pdfTogAcum=()=>{
+    pdfAcum=true;
+    el('pdf-acum-tog').classList.add('on'); el('pdf-mes-tog').classList.remove('on');
+    el('pdf-period-pills').style.display='none';
+  };
+  W._pdfTogMes=()=>{
+    pdfAcum=false;
+    el('pdf-mes-tog').classList.add('on'); el('pdf-acum-tog').classList.remove('on');
+    el('pdf-period-pills').style.display='flex';
+  };
+
+  // Period pills — pre-select all
+  const selPills=new Set(periods);
+  el('pdf-period-pills').innerHTML=periods.map(p=>`
+    <span class="pill active" data-p="${p}" style="font-size:11px;padding:4px 10px"
+      onclick="this.classList.toggle('active'); ">${p}</span>`).join('');
+
+  // CC section (only for CC)
+  el('pdf-cc-section').style.display=type==='cc'?'block':'none';
+  if(type==='cc'){
+    const ccNames=S.ccView.ccNames||[];
+    el('pdf-cc-pills').innerHTML=`<span class="chip active" data-cc="total" onclick="W._pdfCCAll(this)">Todos</span>`
+      +ccNames.map(c=>`<span class="chip" data-cc="${c}" onclick="W._pdfCCToggle(this)">${c}</span>`).join('');
+    W._pdfCCAll=(e)=>{
+      document.querySelectorAll('#pdf-cc-pills .chip').forEach(x=>x.classList.remove('active'));
+      e.classList.add('active');
+    };
+    W._pdfCCToggle=(e)=>{
+      document.querySelector('#pdf-cc-pills .chip[data-cc="total"]').classList.remove('active');
+      e.classList.toggle('active');
+      if(!document.querySelectorAll('#pdf-cc-pills .chip.active').length)
+        document.querySelector('#pdf-cc-pills .chip[data-cc="total"]').classList.add('active');
+    };
+  }
+
+  // GER options
+  el('pdf-ger-opts').style.display=type==='ger'?'block':'none';
+  if(type==='ger'){
+    el('pdf-opt-av').checked=S.gerView.showAV||false;
+    el('pdf-opt-ah').checked=S.gerView.showAH||false;
+  }
+
+  // Store refs for confirmPdfExport to read
+  W._pdfGetConfig=()=>{
+    const selP=pdfAcum?periods:[...el('pdf-period-pills').querySelectorAll('.pill.active')].map(e=>e.dataset.p);
+    let selCC='total';
+    if(type==='cc'){
+      const active=[...document.querySelectorAll('#pdf-cc-pills .chip.active')].map(e=>e.dataset.cc).filter(c=>c!=='total');
+      selCC=active.length?active:'total';
+    }
+    const showAV=type==='ger'&&el('pdf-opt-av').checked;
+    const showAH=type==='ger'&&el('pdf-opt-ah').checked;
+    return{selP, selCC, showAV, showAH, isAcum:pdfAcum};
+  };
+
+  openModal('mpdf-filter');
+}
+
+function confirmPdfExport(){
+  const cfg=W._pdfGetConfig();
+  closeModal('mpdf-filter');
+  exportPDF(_pdfType, cfg);
+}
+
 /* ═══════════════════════ PDF EXPORT ═══════════════════════ */
-async function exportPDF(type){
+async function exportPDF(type, cfg){
   const btn=el('btn-pdf-'+type);
   btn.disabled=true;
   openModal('mpdf');
-  const bar=el('pdf-bar');
-  const setBar=pct=>{ bar.style.width=pct+'%'; };
+  const setBar=pct=>{ el('pdf-bar').style.width=pct+'%'; };
   const setMsg=(t,s)=>{ el('pdf-prog-title').textContent=t; el('pdf-prog-sub').textContent=s; };
 
   try{
-    const {jsPDF}=window.jspdf;
-    // Use landscape for CC (many columns), portrait for GER
+    const{jsPDF}=window.jspdf;
     const orient=type==='cc'?'landscape':'portrait';
     const doc=new jsPDF({orientation:orient,unit:'mm',format:'a4'});
     const PW=orient==='landscape'?297:210;
     const PH=orient==='landscape'?210:297;
-    const margin=13, contentW=PW-(margin*2);
+    const margin=13, cW=PW-(margin*2);
     let y=margin;
     const now=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});
     const typeLabel=type==='cc'?'DRE por Centro de Custo':'DRE Gerencial';
 
-    function newPage(){ doc.addPage(); y=margin; drawPageHeader(); }
-    function checkY(need=20){ if(y+need>PH-14) newPage(); }
+    function newPage(){ doc.addPage(); y=margin; pageHdr(); }
+    function chkY(n=20){ if(y+n>PH-14) newPage(); }
 
-    function drawPageHeader(){
+    function pageHdr(){
       doc.setFillColor(30,79,170); doc.rect(0,0,PW,11,'F');
-      doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
-      doc.text('FinancePro',margin,7.5);
+      doc.setTextColor(255,255,255);
+      doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.text('FinancePro',margin,7.5);
       doc.setFontSize(8.5); doc.setFont('helvetica','normal');
       doc.text(typeLabel+' · '+now,PW-margin,7.5,{align:'right'});
       doc.setTextColor(22,22,26); y=18;
     }
 
-    function secTitle(text){
-      checkY(12);
-      doc.setFillColor(232,240,251); doc.roundedRect(margin,y,contentW,7,1,1,'F');
+    function secTit(text){
+      chkY(12);
+      doc.setFillColor(232,240,251); doc.roundedRect(margin,y,cW,7,1,1,'F');
       doc.setFontSize(8.5); doc.setFont('helvetica','bold'); doc.setTextColor(30,79,170);
       doc.text(text.toUpperCase(),margin+3,y+5); doc.setTextColor(22,22,26); y+=11;
     }
 
-    setMsg('Montando cabeçalho…',''); setBar(8);
-    drawPageHeader();
+    // Row painter helper
+    function paintRow(cat, cells, colCat, colWidths){
+      chkY(5.5);
+      const rc=rClass(cat); const lv=catLevel(cat);
+      const indent=lv>=3?5:lv>=2?2.5:0;
+      const bg=rc==='rs'?[232,240,251]:rc==='rt'?[233,234,240]:[255,255,255];
+      doc.setFillColor(...bg); doc.rect(margin,y,cW,5.5,'F');
+      doc.setFontSize(rc==='rt'||rc==='rs'?7.5:7);
+      doc.setFont('helvetica',rc==='rt'||rc==='rs'?'bold':'normal');
+      doc.setTextColor(rc==='rs'?30:22,rc==='rs'?79:22,rc==='rs'?170:26);
+      doc.text(cat.substring(0,42),margin+2+indent,y+3.9);
+      doc.setTextColor(22,22,26);
+      let xCur=margin+colCat;
+      cells.forEach((val,ci)=>{
+        xCur+=colWidths[ci];
+        doc.text(val,xCur-1,y+3.9,{align:'right'});
+      });
+      y+=5.5;
+    }
 
-    /* ── GERENCIAL ── */
+    setMsg('Montando cabeçalho…',''); setBar(8);
+    pageHdr();
+
+    /* ══════ GERENCIAL ══════ */
     if(type==='ger'){
       const p=S.parsed.ger; if(!p) throw new Error('Dados não encontrados');
       const{cats,byPeriod,totals,periods}=p;
       function gv(map,kw){ const k=Object.keys(map||{}).find(x=>x.toLowerCase().includes(kw.toLowerCase())); return k!=null?map[k]:0; }
-      function pRBpdf(period){ return gv(byPeriod[period]||{},'01T'); }
+      function pRB(per){ return gv(byPeriod[per]||{},'01T'); }
 
-      const allRB=gv(totals,'01T'), allRL=gv(totals,'02T'), allLB=gv(totals,'03T');
-      const allOP=gv(totals,'04T'), allLQ=gv(totals,'06T');
+      const allRB=gv(totals,'01T'),allRL=gv(totals,'02T'),allLB=gv(totals,'03T');
+      const allOP=gv(totals,'04T'),allLQ=gv(totals,'06T');
       const pCMV=allRB?Math.abs(gv(totals,'03 Custo')||gv(totals,'03 Despesas'))/allRB*100:0;
       const pImp=allRB?Math.abs(gv(totals,'02.1'))/allRB*100:0;
-      const mOp=allRB?allOP/allRB*100:0, mLiq=allRB?allLQ/allRB*100:0, mBr=allRB?allLB/allRB*100:0;
+      const mOp=allRB?allOP/allRB*100:0,mLiq=allRB?allLQ/allRB*100:0,mBr=allRB?allLB/allRB*100:0;
 
-      secTitle('Resumo Executivo');
+      // KPIs (always from full totals for context)
+      secTit('Resumo Executivo');
       const kpis=[
-        {l:'Receita Bruta',v:fK(allRB),s:'Acumulado'},
-        {l:'Receita Líquida',v:fK(allRL),s:(allRB?(allRL/allRB*100).toFixed(1)+'% da Bruta':'—')},
-        {l:'% CMV',v:pCMV.toFixed(1)+'%',s:(pCMV>55?'Acima do ideal':'Ok')},
+        {l:'Receita Bruta',v:fK(allRB),s:'Acumulado total'},
+        {l:'Receita Líquida',v:fK(allRL),s:allRB?(allRL/allRB*100).toFixed(1)+'% da Bruta':'—'},
+        {l:'% CMV',v:pCMV.toFixed(1)+'%',s:pCMV>55?'Acima do ideal':'Ok'},
         {l:'% Impostos',v:pImp.toFixed(1)+'%',s:'Sobre rec. bruta'},
         {l:'Lucro Bruto',v:fK(allLB),s:'Mg Bruta: '+mBr.toFixed(1)+'%'},
         {l:'Result. Oper.',v:fK(allOP),s:'Mg Op.: '+mOp.toFixed(1)+'%'},
         {l:'Resultado Líq.',v:fK(allLQ),s:'Mg Liq.: '+mLiq.toFixed(1)+'%'},
         {l:'Rec. Média/Mês',v:fK(allRB/(periods.length||1)),s:periods.length+' meses'},
       ];
-      const cw=contentW/4, rh=17;
+      const kw=cW/4, kh=17;
       kpis.forEach((k,idx)=>{
-        const col=idx%4, row=Math.floor(idx/4), x=margin+col*cw, yy=y+row*(rh+3);
-        if(idx===0||idx===4) checkY(rh+3);
-        doc.setFillColor(248,250,252); doc.roundedRect(x,yy,cw-2,rh,1,1,'FD');
+        if(idx===0||idx===4) chkY(kh+3);
+        const col=idx%4, row=Math.floor(idx/4), x=margin+col*kw, yy=y+row*(kh+3);
+        doc.setFillColor(248,250,252); doc.roundedRect(x,yy,kw-2,kh,1,1,'FD');
         doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
         doc.text(k.l.toUpperCase(),x+2,yy+4);
         doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
@@ -1038,133 +1208,168 @@ async function exportPDF(type){
         doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
         doc.text(k.s,x+2,yy+14.5);
       });
-      y+=2*(rh+3)+8;
+      y+=2*(kh+3)+8;
 
       setMsg('Capturando gráficos…',''); setBar(30);
-      // Charts row
-      secTitle('Evolução das Margens (%)');
-      const chIds=['c-mo','c-ml','c-mc']; const chTitles=['Mg. Operacional','Mg. Líquida','Mg. Contrib. & CMV'];
-      const chW=(contentW-6)/3;
+      secTit('Evolução das Margens (%)');
+      const chIds=['c-mo','c-ml','c-mc'];
+      const chLabels=['Mg. Operacional','Mg. Líquida','Mg. Contrib. & CMV'];
+      const chW=(cW-6)/3;
       for(let ci=0;ci<3;ci++){
         const cv=document.getElementById(chIds[ci]);
-        if(cv){ checkY(46); const img=cv.toDataURL('image/png',.92); const x=margin+ci*(chW+3);
+        if(cv){ chkY(46); const img=cv.toDataURL('image/png',.92); const x=margin+ci*(chW+3);
           doc.setFillColor(250,251,252); doc.roundedRect(x,y,chW,44,1,1,'F');
           doc.setFontSize(6.5); doc.setFont('helvetica','bold'); doc.setTextColor(82,82,92);
-          doc.text(chTitles[ci].toUpperCase(),x+2,y+4.5);
-          doc.addImage(img,'PNG',x+1,y+6,chW-2,36); }
+          doc.text(chLabels[ci].toUpperCase(),x+2,y+4.5);
+          doc.addImage(img,'PNG',x+1,y+6,chW-2,36);
+        }
       }
       y+=50;
-      checkY(52); secTitle('Receita vs Resultado Operacional (R$)');
-      const bv=document.getElementById('c-rv'); const mv=document.getElementById('c-cm');
-      if(bv){ doc.addImage(bv.toDataURL('image/png',.92),'PNG',margin,y,contentW*.64,48); }
-      if(mv){ doc.addImage(mv.toDataURL('image/png',.92),'PNG',margin+contentW*.66,y,contentW*.34,48); }
+      chkY(52); secTit('Receita vs Resultado Operacional (R$)');
+      const bv=document.getElementById('c-rv'),mv=document.getElementById('c-cm');
+      if(bv) doc.addImage(bv.toDataURL('image/png',.92),'PNG',margin,y,cW*.64,48);
+      if(mv) doc.addImage(mv.toDataURL('image/png',.92),'PNG',margin+cW*.66,y,cW*.34,48);
       y+=54;
 
       setMsg('Montando tabela DRE…',''); setBar(60);
       newPage();
-      // Use selected periods or all
-      const selGer=S.gerView.selP?[...S.gerView.selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b)):periods;
-      const isAcumPdf=S.gerView.isAcum;
-      secTitle((isAcumPdf?'DRE Gerencial Acumulado':'DRE Gerencial — Meses Selecionados: '+selGer.join(', ')));
-      const colCat=80;
-      const mCols=isAcumPdf?['Acumulado']:selGer;
-      const extraCW=(contentW-colCat)/(mCols.length+1);
 
-      // Header
-      doc.setFillColor(236,237,242); doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(82,82,92);
-      doc.rect(margin,y,contentW,6,'F');
+      // Determine periods to show
+      const selPer=cfg.isAcum?null:cfg.selP.filter(Boolean);
+      const isAcumPdf=cfg.isAcum||!selPer||!selPer.length;
+      const showAVpdf=cfg.showAV;
+      const showAHpdf=cfg.showAH;
+
+      // Build column list
+      const mCols=isAcumPdf?[]:selPer; // empty means acum
+      const colLabel=isAcumPdf?'DRE Gerencial — Acumulado':'DRE Gerencial — '+mCols.join(', ');
+      secTit(colLabel);
+
+      // Calculate column widths
+      const colCat=78;
+      // Each month gets: valor + optional AV + optional AH (except first month no AH)
+      const colsPerMonth=1+(showAVpdf?1:0);
+      const colAH=showAHpdf?1:0; // AH cols (one per month after first)
+      const nDataCols=isAcumPdf?1+( showAVpdf?1:0):mCols.length*colsPerMonth+Math.max(0,mCols.length-1)*colAH+(mCols.length>1?1+(showAVpdf?1:0):0);
+      const colW=(cW-colCat)/Math.max(nDataCols,1);
+
+      // Build header labels
+      let hdrLabels=[]; // {text, align:'right'|'center', span}
+      if(isAcumPdf){
+        hdrLabels.push('Acumulado');
+        if(showAVpdf) hdrLabels.push('A.V.%');
+      } else {
+        mCols.forEach((m,mi)=>{
+          hdrLabels.push(m.replace('/20','/'));
+          if(showAVpdf) hdrLabels.push('AV%');
+          if(showAHpdf&&mi>0) hdrLabels.push('AH%');
+        });
+        if(mCols.length>1){ hdrLabels.push('TOTAL'); if(showAVpdf) hdrLabels.push('AV%'); }
+      }
+
+      // Paint table header
+      doc.setFillColor(236,237,242); doc.rect(margin,y,cW,6,'F');
+      doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(82,82,92);
       doc.text('CATEGORIA',margin+2,y+4.5);
-      mCols.forEach((m,mi)=>{ doc.text(m.substring(0,10),margin+colCat+(mi+1)*extraCW-1,y+4.5,{align:'right'}); });
-      doc.text('TOTAL',margin+contentW-1,y+4.5,{align:'right'});
+      const eachW=hdrLabels.length?(cW-colCat)/hdrLabels.length:cW-colCat;
+      hdrLabels.forEach((lbl,li)=>{
+        doc.text(lbl.substring(0,10),margin+colCat+(li+1)*eachW-1,y+4.5,{align:'right'});
+      });
       y+=6.5;
 
+      // Paint rows
       cats.forEach(cat=>{
-        checkY(5.5);
-        const rc=rClass(cat); const lv=catLevel(cat);
-        const indent=lv>=3?5:lv>=2?2.5:0;
-        const bg=rc==='rs'?[232,240,251]:rc==='rt'?[233,234,240]:[255,255,255];
-        doc.setFillColor(...bg); doc.rect(margin,y,contentW,5.5,'F');
-        doc.setFontSize(rc==='rt'||rc==='rs'?7.5:7); doc.setFont('helvetica',rc==='rt'||rc==='rs'?'bold':'normal');
-        doc.setTextColor(rc==='rs'?30:22,rc==='rs'?79:22,rc==='rs'?170:26);
-        doc.text(cat.substring(0,42),margin+2+indent,y+3.9);
-        doc.setTextColor(22,22,26);
+        // Compute cell values
+        const cells=[];
         if(isAcumPdf){
-          doc.text(fmtPdf(totals[cat]||0),margin+colCat+extraCW-1,y+3.9,{align:'right'});
+          const tv=totals[cat]||0;
+          const rb=gv(totals,'01T')||1;
+          cells.push(fmtPdf(tv));
+          if(showAVpdf) cells.push((tv/rb*100).toFixed(1)+'%');
         } else {
-          mCols.forEach((m,mi)=>{ doc.text(fmtPdf((byPeriod[m]||{})[cat]||0),margin+colCat+(mi+1)*extraCW-1,y+3.9,{align:'right'}); });
+          let rowT=0;
+          mCols.forEach((m,mi)=>{
+            const mv=(byPeriod[m]||{})[cat]||0; rowT+=mv;
+            const rbM=pRB(m)||1;
+            cells.push(fmtPdf(mv));
+            if(showAVpdf) cells.push((mv/rbM*100).toFixed(1)+'%');
+            if(showAHpdf&&mi>0){
+              const prev=(byPeriod[mCols[mi-1]]||{})[cat]||0;
+              if(prev!==0){ const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1); cells.push((ah>=0?'+':'')+ah+'%'); }
+              else cells.push('—');
+            }
+          });
+          if(mCols.length>1){
+            const rbT=mCols.reduce((s,pp)=>s+pRB(pp),0)||1;
+            cells.push(fmtPdf(rowT));
+            if(showAVpdf) cells.push((rowT/rbT*100).toFixed(1)+'%');
+          }
         }
-        doc.text(fmtPdf(totals[cat]||0),margin+contentW-1,y+3.9,{align:'right'});
-        y+=5.5;
+        const widths=cells.map(()=>eachW);
+        paintRow(cat,cells,colCat,widths);
       });
     }
 
-    /* ── CC ── */
+    /* ══════ CC ══════ */
     if(type==='cc'){
       const p=S.parsed.cc; if(!p) throw new Error('Dados não encontrados');
       const{ccCols,data,periods}=p;
       const allCC=ccCols.map(x=>x.name);
-      // Use currently selected periods & CC for PDF
-      const selCCpdf=S.ccView.selCC==='total'?S.ccView.ccNames:[S.ccView.selCC];
-      const selPdf=S.ccView.selP?[...S.ccView.selP]:periods;
+      // Determine which periods to use
+      const selPer=cfg.isAcum?periods:cfg.selP.filter(Boolean);
+      // Determine which CCs to show
+      const displayCCs=S.ccView.ccNames||allCC.filter(c=>!S.rateio.origens.includes(c));
+      const selCC=cfg.selCC==='total'||!Array.isArray(cfg.selCC)?displayCCs:cfg.selCC;
       const cats=data.reduce((a,r)=>{ if(!a.includes(r.cat))a.push(r.cat); return a; },[]);
 
-      // Sum rows for selected periods
-      const rowBycat={};
+      // Sum rows
+      const rbcat={};
       data.forEach(r=>{
-        if(!selPdf.includes(r.mes+'/'+r.ano)) return;
-        if(!rowBycat[r.cat])rowBycat[r.cat]={cat:r.cat,valor:0,cc:{}};
-        rowBycat[r.cat].valor+=r.valor;
-        allCC.forEach(c=>{ rowBycat[r.cat].cc[c]=(rowBycat[r.cat].cc[c]||0)+(r.cc[c]||0); });
+        if(!selPer.includes(r.mes+'/'+r.ano)) return;
+        if(!rbcat[r.cat])rbcat[r.cat]={cat:r.cat,valor:0,cc:{}};
+        rbcat[r.cat].valor+=r.valor;
+        allCC.forEach(c=>{ rbcat[r.cat].cc[c]=(rbcat[r.cat].cc[c]||0)+(r.cc[c]||0); });
       });
-      applyRateioToRows(rowBycat, cats, allCC);
+      applyRateioToRows(rbcat, cats, allCC);
 
-      const periodLabel=selPdf.length===periods.length?'Acumulado':selPdf.join(', ');
-      secTitle('DRE Centro de Custo — '+periodLabel);
+      const periodLabel=selPer.length===periods.length?'Acumulado':selPer.join(', ');
+      secTit('DRE Centro de Custo — '+periodLabel);
 
-      const colCat=75;
-      const displayCols=selCCpdf;
-      // Dynamically size columns to fit landscape
-      const colVal=28; const extraCW=(contentW-colCat-colVal)/Math.max(displayCols.length,1);
+      // Column layout
+      const colCat=72;
+      const colTot=26;
+      const nCC=selCC.length;
+      const ccColW=(cW-colCat-colTot)/Math.max(nCC,1);
 
-      // Table header
-      doc.setFillColor(236,237,242); doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(82,82,92);
-      doc.rect(margin,y,contentW,6,'F');
+      // Header
+      doc.setFillColor(236,237,242); doc.rect(margin,y,cW,6,'F');
+      doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(82,82,92);
       doc.text('CATEGORIA',margin+2,y+4.5);
-      doc.text('TOTAL',margin+colCat+colVal-1,y+4.5,{align:'right'});
-      displayCols.forEach((c,ci)=>{ doc.text(c.substring(0,14),margin+colCat+colVal+ci*extraCW+extraCW-1,y+4.5,{align:'right'}); });
+      doc.text('TOTAL',margin+colCat+colTot-1,y+4.5,{align:'right'});
+      selCC.forEach((c,ci)=>{
+        doc.text(c.substring(0,13),margin+colCat+colTot+ci*ccColW+ccColW-1,y+4.5,{align:'right'});
+      });
       y+=6.5;
 
       cats.forEach(cat=>{
-        checkY(5.5);
-        const r=rowBycat[cat]||{valor:0,cc:{}};
-        const rc=rClass(cat); const lv=catLevel(cat);
-        const indent=lv>=3?5:lv>=2?2.5:0;
-        const bg=rc==='rs'?[232,240,251]:rc==='rt'?[233,234,240]:[255,255,255];
-        doc.setFillColor(...bg); doc.rect(margin,y,contentW,5.5,'F');
-        doc.setFontSize(rc==='rt'||rc==='rs'?7.5:7); doc.setFont('helvetica',rc==='rt'||rc==='rs'?'bold':'normal');
-        doc.setTextColor(rc==='rs'?30:22,rc==='rs'?79:22,rc==='rs'?170:26);
-        doc.text(cat.substring(0,38),margin+2+indent,y+3.9);
-        doc.setTextColor(22,22,26);
-        doc.text(fmtPdf(r.valor),margin+colCat+colVal-1,y+3.9,{align:'right'});
-        displayCols.forEach((c,ci)=>{ doc.text(fmtPdf(r.cc[c]||0),margin+colCat+colVal+ci*extraCW+extraCW-1,y+3.9,{align:'right'}); });
-        y+=5.5;
+        const r=rbcat[cat]||{valor:0,cc:{}};
+        const cells=[fmtPdf(r.valor),...selCC.map(c=>fmtPdf(r.cc[c]||0))];
+        const widths=[colTot,...selCC.map(()=>ccColW)];
+        paintRow(cat,cells,colCat,widths);
       });
     }
 
-    setBar(88);
-    setMsg('Finalizando…','Adicionando rodapés.');
-    // Footer on all pages
+    setBar(90); setMsg('Finalizando…','Rodapés.');
     const pc=doc.internal.getNumberOfPages();
     for(let i=1;i<=pc;i++){
       doc.setPage(i);
       doc.setFillColor(244,245,248); doc.rect(0,PH-9,PW,9,'F');
       doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
-      doc.text('FinancePro · Relatório gerado em '+now+' · Confidencial',margin,PH-4);
+      doc.text('FinancePro · '+now+' · Confidencial',margin,PH-4);
       doc.text('Pág. '+i+'/'+pc,PW-margin,PH-4,{align:'right'});
     }
     setBar(100);
-    const fname=`${typeLabel.replace(/ /g,'_')}_${now.replace(/[\s,]/g,'_')}.pdf`;
-    doc.save(fname);
+    doc.save(`${typeLabel.replace(/ /g,'_')}_${now.replace(/[\s,]/g,'_')}.pdf`);
     closeModal('mpdf');
     toast('PDF gerado com sucesso! 🎉','success');
   }catch(err){
@@ -1185,7 +1390,10 @@ function killCharts(){ S.charts.forEach(c=>{ try{c.destroy();}catch(e){} }); S.c
 function emptyHtml(icon,title,sub=''){ return`<div class="empty"><div class="empty-icon">${icon}</div><div class="empty-title">${title}</div>${sub?`<div class="empty-sub">${sub}</div>`:''}</div>`; }
 function showConfirm(msg,sub,onOk){ el('conf-msg').textContent=msg; el('conf-sub').textContent=sub||''; el('conf-ok').onclick=()=>{ closeModal('mconfirm'); onOk(); }; openModal('mconfirm'); }
 
-document.querySelectorAll('.mov').forEach(o=>o.addEventListener('click',e=>{ if(e.target===o&&!o.id.startsWith('mpdf'))o.classList.remove('open'); }));
+document.querySelectorAll('.mov').forEach(o=>o.addEventListener('click',e=>{
+  const id=o.id;
+  if(e.target===o && id!=='mpdf' && id!=='mpdf-filter') o.classList.remove('open');
+}));
 const uz=el('upz');
 uz.addEventListener('dragover',e=>{ e.preventDefault(); uz.classList.add('drag'); });
 uz.addEventListener('dragleave',()=>uz.classList.remove('drag'));
