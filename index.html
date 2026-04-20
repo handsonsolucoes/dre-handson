@@ -747,24 +747,28 @@ function applyRateioToRows(rowBycat, cats, ccNames){
     origs.forEach(orig=>{ row.cc[orig]=0; });
     row.valor=ccNames.reduce((s,cc)=>s+(row.cc[cc]||0),0);
   });
-  // Step B: rebuild T-rows (level-0 = "01T Receita Bruta", "02T", "03T", etc.)
-  // by summing all their direct level-1 and level-2-subtotal children
+  // Step B: rebuild T-rows using cumulative DRE logic.
+  // Each T-row = cumulative sum of ALL level-1 rows encountered up to and including
+  // the group immediately above this T-row (in DRE order).
+  // This mirrors: 01T=sum(01.x), 02T=01T+02, 03T=02T+03, 04T=03T+04, etc.
+  let running={};
+  ccNames.forEach(cc=>{ running[cc]=0; });
+  let runningValor=0;
   cats.forEach((cat,i)=>{
-    if(catLevel(cat)!==0) return; // only xxT rows
-    const tRow=rowBycat[cat]; if(!tRow) return;
-    // Reset cc values and recalculate from children
-    ccNames.forEach(cc=>{ tRow.cc[cc]=0; });
-    // Find children: cats between this T-row and the next T-row of same or lower level
-    for(let j=i+1;j<cats.length;j++){
-      const child=cats[j];
-      if(catLevel(child)===0) break; // next T-row = stop
-      const childRow=rowBycat[child]; if(!childRow) continue;
-      // Only count direct children (level 1) to avoid double-counting
-      if(catLevel(child)===1){
-        ccNames.forEach(cc=>{ tRow.cc[cc]=(tRow.cc[cc]||0)+(childRow.cc[cc]||0); });
-      }
+    const lv=catLevel(cat);
+    const row=rowBycat[cat];
+    if(lv===0){
+      // T-row: set to current running cumulative
+      if(!row){ return; }
+      ccNames.forEach(cc=>{ row.cc[cc]=running[cc]; });
+      row.valor=runningValor;
+    } else if(lv===1){
+      // Regular level-1 group: add to running total
+      if(!row) return;
+      ccNames.forEach(cc=>{ running[cc]=(running[cc]||0)+(row.cc[cc]||0); });
+      runningValor+=row.valor;
     }
-    tRow.valor=ccNames.reduce((s,cc)=>s+(tRow.cc[cc]||0),0);
+    // Deeper levels don't affect the T-row directly (already aggregated in level-1)
   });
 }
 
@@ -939,34 +943,58 @@ function renderGer(con, parsed, meta, fonte){
     return raw;
   }
 
-  // Recalculate any aggregated row (level 0,1,2 T-rows) by summing its children via pv().
-  // This ensures external overrides bubble up correctly through all totals.
+  // pvAgg: computes the correct DRE value for any category/period.
+  //
+  // DRE rule: T-rows (level 0, e.g. "01T", "02T") are CUMULATIVE SUMS
+  // of all level-1 groups encountered so far in DRE order:
+  //   01T = sum(01.x leaf groups)           ← pure sum of revenues
+  //   02T = 01T + 02(deductions)            ← RB + deductions (negative)
+  //   03T = 02T + 03(costs)                 ← RL + costs (negative)
+  //   04T = 03T + 04(expenses)              ← LB + expenses (negative)
+  //   06T = 04T + 05 + 06                   ← LO + financial +/−
+  //   07T = 06T + 07                        ← LL + invest/loans
+  //
+  // Level-1 rows: sum of their level-2 children.
+  // Level-2+ rows: sum of their level-3+ children (or leaf value).
   function pvAgg(period, cat){
     const lv=catLevel(cat);
-    if(lv>2) return pv(period,cat); // leaf
-    // Find children: all cats that are direct children of this cat's level
+    // Leaf nodes: return raw pv (may include external override)
+    if(lv>=3) return pv(period,cat);
+
+    const idx=cats.indexOf(cat);
+    if(idx<0) return pvRaw(period,cat);
+
+    if(lv===0){
+      // T-row: cumulative sum of all level-1 rows encountered before this T-row
+      let cumulative=0;
+      for(let i=0;i<idx;i++){
+        const c=cats[i]; const clv=catLevel(c);
+        // Only add level-1 groups (not other T-rows, not deeper)
+        if(clv===1) cumulative+=pvAgg(period,c);
+      }
+      return cumulative;
+    }
+
+    // Level 1 or 2: sum direct children at next level
     const childLevel=lv+1;
-    let idx=cats.indexOf(cat); if(idx<0) return pvRaw(period,cat);
     let total=0; let found=false;
     for(let i=idx+1;i<cats.length;i++){
       const c=cats[i]; const clv=catLevel(c);
-      if(clv<=lv) break; // back to same or higher level — done
+      if(clv<=lv) break; // left this group
       if(clv===childLevel){ total+=pvAgg(period,c); found=true; }
-      // skip deeper levels (they're aggregated via recursive call)
     }
     return found?total:pv(period,cat);
   }
 
-  // pRB: receita bruta for the period (respects external override)
+  // pRB: Receita Bruta = pvAgg of 01T row (always uses correct cumulative logic,
+  // whether fonte=interna or externa, since pvAgg falls back to pvRaw for leaves)
   function pRB(period){
-    const cat01T=cats.find(c=>/^\d+T /.test(c)&&/receita|bruta/i.test(c))||cats.find(c=>/01T/.test(c));
+    const cat01T=cats.find(c=>/01T/.test(c));
+    // In interna mode: 01T is stored directly in byPeriod, use that for performance
     if(!fonte||fonte!=='externa') return gv(byPeriod[period]||{},'01T');
+    // In externa mode: recalculate from leaves (pvAgg handles external fat injection)
     return cat01T?pvAgg(period,cat01T):gv(byPeriod[period]||{},'01T');
   }
-
-  const cat04T=cats.find(c=>/04T/.test(c))||'';
-  const cat06T=cats.find(c=>/06T/.test(c))||'';
-  const cat03T=cats.find(c=>/03T/.test(c))||'';
 
   let isAcum=false;
   let selP=new Set(periods), showAV=false, showAH=false, lastI=-1;
@@ -974,35 +1002,57 @@ function renderGer(con, parsed, meta, fonte){
   // Compute KPIs and chart arrays from a given set of periods
   function computeKPIs(ps){
     const msArr=[...ps].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
-    // Aggregate totals over selected periods using pv (respects externa override)
-    function sumCat(cat){ return msArr.reduce((s,p)=>s+pvAgg(p,cat),0); }
-    const allRB=sumCat(cats.find(c=>/01T/.test(c))||'')||msArr.reduce((s,p)=>s+pRB(p),0);
-    const allRL=sumCat(cats.find(c=>/02T/.test(c))||'');
-    const allLB=sumCat(cats.find(c=>/03T/.test(c))||'');
-    const allOP=sumCat(cats.find(c=>/04T/.test(c))||'');
-    const allLQ=sumCat(cats.find(c=>/06T/.test(c))||'');
-    const allImp=gv(msArr.reduce((acc,p)=>{cats.forEach(c=>{acc[c]=(acc[c]||0)+pvAgg(p,c)});return acc;},{}),'02.1');
-    const allCMV=sumCat(cats.find(c=>/03T/.test(c))||'')- // gross margin diff
-                 msArr.reduce((s,p)=>s+pRB(p),0);
-    // simpler: use cat03T values sum for CMV sub (level-2)
+    function sumCat(cat){ return cat?msArr.reduce((s,p)=>s+pvAgg(p,cat),0):0; }
+
+    // Locate T-row cats by their numeric prefix
+    const c01T=cats.find(c=>/01T/.test(c))||'';
+    const c02T=cats.find(c=>/02T/.test(c))||'';
+    const c03T=cats.find(c=>/03T/.test(c))||'';
+    const c04T=cats.find(c=>/04T/.test(c))||'';
+    const c06T=cats.find(c=>/06T/.test(c))||'';
+    const c07T=cats.find(c=>/07T/.test(c))||'';
+
+    // Locate level-1 group cats for individual line analysis
+    const c02grp=cats.find(c=>/^02 /.test(c))||''; // Deduções
+    const c03grp=cats.find(c=>/^03 /.test(c))||''; // Custos Operacionais
+    const c04grp=cats.find(c=>/^04 /.test(c))||''; // Despesas Operacionais
+
+    // KPI values from T-rows (use pvAgg which applies cumulative DRE logic)
+    const allRB=sumCat(c01T); // Receita Bruta = sum of 01.x revenues
+    const allRL=sumCat(c02T); // Receita Líquida = RB + deduções (negative)
+    const allLB=sumCat(c03T); // Lucro Bruto = RL + custos operacionais (negative)
+    const allOP=sumCat(c04T); // Lucro Operacional = LB + despesas operacionais (negative)
+    const allLQ=sumCat(c06T); // Lucro Líquido = LO + rec/desp financeiras + não operacionais
+    const allFinal=c07T?sumCat(c07T):0; // Lucro Final = LL + investimentos/empréstimos
+
+    // CMV: sum of level-2 sub-rows inside 03 group (costs)
     let cmvSum=0;
     cats.forEach(c=>{ if(/^03\.\d/.test(c)&&catLevel(c)===2) cmvSum+=sumCat(c); });
+
+    // Impostos: sum of 02.1 rows
+    let impSum=0;
+    cats.forEach(c=>{ if(/^02\.1/.test(c)) impSum+=sumCat(c); });
+
     const pCMV=allRB?Math.abs(cmvSum)/allRB*100:0;
-    const pImp=allRB?Math.abs(allImp)/allRB*100:0;
+    const pImp=allRB?Math.abs(impSum)/allRB*100:0;
     const mOp=allRB?allOP/allRB*100:0;
     const mLiq=allRB?allLQ/allRB*100:0;
     const mBr=allRB?allLB/allRB*100:0;
     const n=msArr.length||1;
-    // Chart arrays (only for selected periods)
+
     const lbs=msArr.map(p=>p.replace('/20','/'));
-    const moArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,cat04T)/rb*100).toFixed(2); });
-    const mlArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,cat06T)/rb*100).toFixed(2); });
-    const mcArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,cat03T)/rb*100).toFixed(2); });
-    const cmvArr=msArr.map(p=>{ const rb=pRB(p)||1; let cv=0; cats.forEach(c=>{ if(/^03\.\d/.test(c)&&catLevel(c)===2) cv+=pvAgg(p,c); }); return+(Math.abs(cv)/rb*100).toFixed(2); });
+    const moArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,c04T)/rb*100).toFixed(2); });
+    const mlArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,c06T)/rb*100).toFixed(2); });
+    const mcArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,c03T)/rb*100).toFixed(2); });
+    const cmvArr=msArr.map(p=>{
+      const rb=pRB(p)||1; let cv=0;
+      cats.forEach(c=>{ if(/^03\.\d/.test(c)&&catLevel(c)===2) cv+=pvAgg(p,c); });
+      return+(Math.abs(cv)/rb*100).toFixed(2);
+    });
     const recArr=msArr.map(p=>pRB(p));
-    const opArr=msArr.map(p=>pvAgg(p,cat04T));
+    const opArr=msArr.map(p=>pvAgg(p,c04T));
     const avg=arr=>arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:0;
-    return{allRB,allRL,allLB,allOP,allLQ,pCMV,pImp,mOp,mLiq,mBr,n,
+    return{allRB,allRL,allLB,allOP,allLQ,allFinal,pCMV,pImp,mOp,mLiq,mBr,n,
            lbs,moArr,mlArr,mcArr,cmvArr,recArr,opArr,
            moMean:avg(moArr),mlMean:avg(mlArr)};
   }
@@ -1125,26 +1175,27 @@ function renderGer(con, parsed, meta, fonte){
   function updateKPICards(K){
     function setKV(id, val, cls){ const e=el(id); if(!e)return; e.textContent=val; e.className='kpi-value'+(cls?' '+cls:''); }
     function setKS(id, val){ const e=el(id); if(!e)return; e.textContent=val; }
-    function setKPIClass(id, cls){ const e=el(id); if(!e)return; e.className='kpi'+(cls?' kpi-'+cls:''); }
+    function setKC(id, cls){ const e=el(id); if(!e)return; e.className='kpi'+(cls?' kpi-'+cls:''); }
     setKV('kv-rb',  fK(K.allRB), 'bl');
     setKS('ks-rb',  'Período selecionado');
-    setKV('kv-rl',  fK(K.allRL), '');
+    setKV('kv-rl',  fK(K.allRL), K.allRL>=0?'gn':'rd');
     setKS('ks-rl',  K.allRB?(K.allRL/K.allRB*100).toFixed(1)+'% da Bruta':'—');
+    setKC('kpi-rl', K.allRL>=0?'gn':'rd');
     setKV('kv-cmv', K.pCMV.toFixed(1)+'%', K.pCMV>55?'rd':'gn');
-    setKPIClass('kpi-cmv', K.pCMV>55?'rd':'gn');
+    setKC('kpi-cmv', K.pCMV>55?'rd':'gn');
     setKS('ks-cmv', K.pCMV>55?'Acima do ideal':'Dentro do padrão');
     setKV('kv-imp', K.pImp.toFixed(1)+'%', '');
     setKV('kv-lb',  fK(K.allLB), K.allLB>=0?'gn':'rd');
-    setKPIClass('kpi-lb', K.allLB>=0?'gn':'rd');
-    setKS('ks-lb',  'Margem Bruta: '+K.mBr.toFixed(1)+'%');
+    setKC('kpi-lb', K.allLB>=0?'gn':'rd');
+    setKS('ks-lb',  'Mg. Bruta: '+K.mBr.toFixed(1)+'%');
     setKV('kv-op',  fK(K.allOP), K.allOP>=0?'gn':'rd');
-    setKPIClass('kpi-op', K.allOP>=0?'gn':'rd');
-    setKS('ks-op',  'Margem Op.: '+K.mOp.toFixed(1)+'%');
+    setKC('kpi-op', K.allOP>=0?'gn':'rd');
+    setKS('ks-op',  'Mg. Op.: '+K.mOp.toFixed(1)+'%');
     setKV('kv-lq',  fK(K.allLQ), K.allLQ>=0?'gn':'rd');
-    setKPIClass('kpi-lq', K.allLQ>=0?'gn':'rd');
-    setKS('ks-lq',  'Margem Liq.: '+K.mLiq.toFixed(1)+'%');
+    setKC('kpi-lq', K.allLQ>=0?'gn':'rd');
+    setKS('ks-lq',  'Mg. Líq.: '+K.mLiq.toFixed(1)+'%');
     setKV('kv-med', fK(K.n?K.allRB/K.n:0), 'bl');
-    setKS('ks-med', K.n+' mês(es) selecionado(s)');
+    setKS('ks-med', K.n+' mês(es)');
   }
 
   // ─── Chart refs (created once, updated on period change) ─────────────────────
