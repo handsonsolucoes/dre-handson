@@ -886,60 +886,59 @@ function renderGer(con, parsed, meta, fonte){
   // Build a map of which leaf cat to inject FAT and CMV externally.
   // FAT → first leaf (deepest child) under first 01.x sub-category
   // CMV → first leaf under first 03.x sub-category
+  // ── External source configuration ──────────────────────────────────────────
+  // FAT: we identify the first level-2 sub-group under "01 " (e.g. "01.1 Receita de Vendas...")
+  //   When externa: pvAgg for that 01.1 group returns ext.fat directly
+  //   All children of 01.1 are hidden in the table and replaced with "Faturamento Preenchido"
+  //
+  // CMV: we find the first leaf under the first 03.x sub-group
+  //   When externa: that leaf's pvRaw is replaced by -ext.cmv
+  //   All parent rows bubble up via pvAgg
+
   function findExternaCats(){
-    let fatTarget=null, cmvTarget=null;
-    // Walk cats to find first level-2 under "01 " group, then its first leaf
-    let mode=null;
+    // fat01x: first level-2 cat under the "01 " group (not 01T itself)
+    let fat01xCat=null;
+    // fat01xChildren: all cats that are direct children (level 3+) of fat01xCat
+    let fat01xChildren=[];
+    // cmvLeaf: first leaf (level 3+) under first 03.x sub
+    let cmvLeaf=null;
+
+    let in01=false, in01x=false, in03=false, in03x=false;
+    let fat01xIdx=-1;
     for(let i=0;i<cats.length;i++){
       const c=cats[i]; const lv=catLevel(c);
-      if(/^01T/.test(c)||(/^01 /.test(c)&&lv===1)){ mode='fat01'; continue; }
-      if(mode==='fat01'){
-        if(lv<=1){ mode=null; }
-        else if(lv===2){ mode='fat01x'; } // inside first 01.x
-        continue;
+      if(lv===0 && /^01T/.test(c)){ in01=false; in01x=false; continue; }
+      if(lv===0 && /^03T/.test(c)){ in03=false; in03x=false; continue; }
+      if(lv===1 && /^01 /.test(c)){ in01=true; in01x=false; continue; }
+      if(lv===1 && /^03 /.test(c)){ in03=true; in03x=false; continue; }
+      if(lv===1){ in01=false; in01x=false; in03=false; in03x=false; continue; }
+      if(in01 && lv===2 && !fat01xCat){ fat01xCat=c; fat01xIdx=i; in01x=true; continue; }
+      if(in01x){
+        if(lv<=2){ in01x=false; }
+        else { fat01xChildren.push(c); continue; }
       }
-      if(mode==='fat01x'){
-        if(lv<=2){ mode=null; }
-        else if(lv>=3&&!fatTarget){ fatTarget=c; mode=null; }
-        continue;
-      }
-      if(/^03T/.test(c)||(/^03 /.test(c)&&lv===1)){ mode='cmv03'; continue; }
-      if(mode==='cmv03'){
-        if(lv<=1){ mode=null; }
-        else if(lv===2){ mode='cmv03x'; }
-        continue;
-      }
-      if(mode==='cmv03x'){
-        if(lv<=2){ mode=null; }
-        else if(lv>=3&&!cmvTarget){ cmvTarget=c; mode=null; }
+      if(in03 && lv===2){ in03x=true; continue; }
+      if(in03x){
+        if(lv<=2){ in03x=false; }
+        else if(!cmvLeaf){ cmvLeaf=c; }
         continue;
       }
     }
-    // Fallback: if no leaf found under 01.x, use first level-2 of 01 group
-    if(!fatTarget){
-      for(let i=0;i<cats.length;i++){
-        const c=cats[i];
-        if(/^01\.\d/.test(c)&&catLevel(c)===2){ fatTarget=c; break; }
-      }
+    // Fallback: if no level-3 leaf, use the level-2 cat itself
+    if(!cmvLeaf){
+      for(const c of cats){ if(/^03\.\d/.test(c)&&catLevel(c)===2){ cmvLeaf=c; break; } }
     }
-    // Fallback CMV: first level-2 of 03 group
-    if(!cmvTarget){
-      for(let i=0;i<cats.length;i++){
-        const c=cats[i];
-        if(/^03\.\d/.test(c)&&catLevel(c)===2){ cmvTarget=c; break; }
-      }
-    }
-    return{fatTarget,cmvTarget};
+    return{fat01xCat, fat01xChildren, cmvLeaf};
   }
-  const externaCats=(fonte==='externa')?findExternaCats():{fatTarget:null,cmvTarget:null};
+  const externaCats=(fonte==='externa')?findExternaCats():{fat01xCat:null,fat01xChildren:[],cmvLeaf:null};
 
-  // pv: return value for a category/period, overriding with external data if active
+  // pv: override CMV leaf value when fonte=externa
   function pv(period,cat){
     const raw=pvRaw(period,cat);
-    if(!fonte||fonte!=='externa') return raw;
+    if(fonte!=='externa') return raw;
     const ext=S.fatCMV[period]||{};
-    if(ext.fat && cat===externaCats.fatTarget) return ext.fat;
-    if(ext.cmv && cat===externaCats.cmvTarget) return -Math.abs(ext.cmv);
+    // CMV: replace the target leaf value
+    if(ext.cmv && cat===externaCats.cmvLeaf) return -Math.abs(ext.cmv);
     return raw;
   }
 
@@ -958,29 +957,40 @@ function renderGer(con, parsed, meta, fonte){
   // Level-2+ rows: sum of their level-3+ children (or leaf value).
   function pvAgg(period, cat){
     const lv=catLevel(cat);
-    // Leaf nodes: return raw pv (may include external override)
+
+    // Leaf nodes: return pv (handles CMV override)
     if(lv>=3) return pv(period,cat);
 
     const idx=cats.indexOf(cat);
     if(idx<0) return pvRaw(period,cat);
 
+    // FAT override: the 01.1 level-2 group returns ext.fat directly
+    // (ignoring all its children — they will be hidden in the table)
+    if(fonte==='externa' && cat===externaCats.fat01xCat){
+      const ext=S.fatCMV[period]||{};
+      return ext.fat || pvChildSum(period, cat, lv);
+    }
+
+    // T-row (level 0): cumulative sum of all preceding level-1 groups
     if(lv===0){
-      // T-row: cumulative sum of all level-1 rows encountered before this T-row
       let cumulative=0;
       for(let i=0;i<idx;i++){
-        const c=cats[i]; const clv=catLevel(c);
-        // Only add level-1 groups (not other T-rows, not deeper)
-        if(clv===1) cumulative+=pvAgg(period,c);
+        if(catLevel(cats[i])===1) cumulative+=pvAgg(period,cats[i]);
       }
       return cumulative;
     }
 
-    // Level 1 or 2: sum direct children at next level
+    // Level 1 or 2: sum direct children
+    return pvChildSum(period, cat, lv);
+  }
+
+  function pvChildSum(period, cat, lv){
+    const idx=cats.indexOf(cat); if(idx<0) return pvRaw(period,cat);
     const childLevel=lv+1;
     let total=0; let found=false;
     for(let i=idx+1;i<cats.length;i++){
       const c=cats[i]; const clv=catLevel(c);
-      if(clv<=lv) break; // left this group
+      if(clv<=lv) break;
       if(clv===childLevel){ total+=pvAgg(period,c); found=true; }
     }
     return found?total:pv(period,cat);
@@ -1060,6 +1070,7 @@ function renderGer(con, parsed, meta, fonte){
   function buildT(){
     const ms=[...selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
     S.gerView={selP,isAcum,showAV,showAH};
+    const firstP=ms[0];
 
     // Recompute KPIs and update cards based on currently selected periods
     const K=computeKPIs(selP);
@@ -1098,12 +1109,26 @@ function renderGer(con, parsed, meta, fonte){
     }
     h+=`</tr></thead><tbody>`;
 
+    // Determine which cats to skip (children of fat01xCat when externa)
+    const hiddenBySrc=new Set();
+    if(fonte==='externa' && externaCats.fat01xChildren.length){
+      externaCats.fat01xChildren.forEach(c=>hiddenBySrc.add(c));
+    }
+
+    // Synthetic "Faturamento Preenchido" injection flag
+    let fatInjected=false;
+
     cats.forEach((cat,i)=>{
+      // Skip children of 01.1 when externa (replaced by "Faturamento Preenchido")
+      if(hiddenBySrc.has(cat)) return;
+
       const rc=rClass(cat); const lv=catLevel(cat);
       const canCol=lv<=3; const isCol=collapsed.has(cat);
       let hide=false,ci=i;
       for(let d=0;d<8;d++){const pp=groupMap[ci];if(!pp)break;if(collapsed.has(pp)){hide=true;break;}ci=cats.indexOf(pp);if(ci<0)break;}
-      const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._gTog('${cat.replace(/'/g,"\\'").replace(/\//g,'\\/')}',${i})">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
+      // Also hide if parent is fat01xCat and we're in externa mode (already handled above)
+
+      const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._gTog('${cat.replace(/'/g,"\'").replace(/\//g,'\\/')}',${i})">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
       h+=`<tr class="${rc}${hide?' hrow':''}" data-gi="${i}"><td>${tg}${cat}</td>`;
 
       if(isAcum){
@@ -1112,13 +1137,13 @@ function renderGer(con, parsed, meta, fonte){
         if(showAV)h+=`<td class="avc">${rb0?(tv/rb0*100).toFixed(1):0}%</td>`;
       } else {
         let rowT=0;
+        const base0=pvAgg(firstP,cat);
         ms.forEach((m,mi)=>{
           const mv=pvAgg(m,cat); rowT+=mv; const rbM=pRB(m)||1;
           h+=`<td>${fmt(mv)}</td>`;
           if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
-          // AH: compare to PREVIOUS period in ms array (not first)
           if(showAH&&mi>0){
-            const prevVal=pv(ms[mi-1],cat);
+            const prevVal=pvAgg(ms[mi-1],cat);
             if(prevVal!==0){const ah=+((mv-prevVal)/Math.abs(prevVal)*100).toFixed(1); h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
             else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
           }
@@ -1126,6 +1151,36 @@ function renderGer(con, parsed, meta, fonte){
         if(ms.length>1){ const rbT=ms.reduce((s,p)=>s+pRB(p),0)||1; h+=`<td>${fmt(rowT)}</td>`; if(showAV)h+=`<td class="avc">${(rowT/rbT*100).toFixed(1)}%</td>`; }
       }
       h+=`</tr>`;
+
+      // Inject "Faturamento Preenchido" row right after fat01xCat when externa
+      if(fonte==='externa' && cat===externaCats.fat01xCat && !fatInjected){
+        fatInjected=true;
+        // Check if there's any ext data to show
+        const hasFat=ms.some(m=>(S.fatCMV[m]||{}).fat);
+        if(hasFat||isAcum){
+          const synLabel='Faturamento Preenchido';
+          h+=`<tr class="rb2"><td><span style="display:inline-block;width:44px"></span><em style="color:var(--gold);font-style:normal;font-weight:600">✦ ${synLabel}</em></td>`;
+          if(isAcum){
+            const tv=ms.reduce((s,m)=>s+((S.fatCMV[m]||{}).fat||0),0);
+            h+=`<td>${fmt(tv)}</td>`;
+            if(showAV)h+=`<td class="avc">${rb0?(tv/rb0*100).toFixed(1):0}%</td>`;
+          } else {
+            let rowT=0;
+            ms.forEach((m,mi)=>{
+              const mv=(S.fatCMV[m]||{}).fat||0; rowT+=mv; const rbM=pRB(m)||1;
+              h+=`<td>${fmt(mv)}</td>`;
+              if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
+              if(showAH&&mi>0){
+                const prev=(S.fatCMV[ms[mi-1]]||{}).fat||0;
+                if(prev){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+                else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
+              }
+            });
+            if(ms.length>1){ const rbT=ms.reduce((s,p)=>s+pRB(p),0)||1; h+=`<td>${fmt(rowT)}</td>`; if(showAV)h+=`<td class="avc">${(rowT/rbT*100).toFixed(1)}%</td>`; }
+          }
+          h+=`</tr>`;
+        }
+      }
     });
     h+=`</tbody></table></div></div>`;
     el('ger-ta').innerHTML=h;
@@ -1518,7 +1573,7 @@ async function exportPDF(type, cfg){
 
   try{
     const{jsPDF}=window.jspdf;
-    const orient=type==='cc'?'landscape':'portrait';
+    const orient='landscape'; // Both CC and GER use landscape for more columns
     const doc=new jsPDF({orientation:orient,unit:'mm',format:'a4'});
     const PW=orient==='landscape'?297:210;
     const PH=orient==='landscape'?210:297;
@@ -1531,18 +1586,21 @@ async function exportPDF(type, cfg){
     function chkY(n=20){ if(y+n>PH-14) newPage(); }
 
     function pageHdr(){
-      doc.setFillColor(30,79,170); doc.rect(0,0,PW,11,'F');
+      // Hands On gradient bar: navy
+      doc.setFillColor(13,33,77); doc.rect(0,0,PW,11,'F');
+      doc.setFillColor(184,146,42); doc.rect(PW-6,0,6,11,'F'); // gold accent strip
       doc.setTextColor(255,255,255);
-      doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.text('FinancePro',margin,7.5);
+      doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.text('HANDS ON',margin,7.5);
+      doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.text('Gestão Financeira Inteligente',margin,10.5);
       doc.setFontSize(8.5); doc.setFont('helvetica','normal');
-      doc.text(typeLabel+' · '+now,PW-margin,7.5,{align:'right'});
+      const fonteLabel=type==='ger'?(cfg&&cfg.fonte==='externa'?' · Dados Externos':''):''; doc.text(typeLabel+fonteLabel+' · '+now,PW-margin,7.5,{align:'right'});
       doc.setTextColor(22,22,26); y=18;
     }
 
     function secTit(text){
       chkY(12);
       doc.setFillColor(232,240,251); doc.roundedRect(margin,y,cW,7,1,1,'F');
-      doc.setFontSize(8.5); doc.setFont('helvetica','bold'); doc.setTextColor(30,79,170);
+      doc.setFontSize(8.5); doc.setFont('helvetica','bold'); doc.setTextColor(13,33,77);
       doc.text(text.toUpperCase(),margin+3,y+5); doc.setTextColor(22,22,26); y+=11;
     }
 
@@ -1573,13 +1631,12 @@ async function exportPDF(type, cfg){
     if(type==='ger'){
       const p=S.parsed.ger; if(!p) throw new Error('Dados não encontrados');
       const{cats,byPeriod,totals,periods}=p;
-      function gv(map,kw){ const k=Object.keys(map||{}).find(x=>x.toLowerCase().includes(kw.toLowerCase())); return k!=null?map[k]:0; }
-      function pRB(per){ return gv(byPeriod[per]||{},'01T'); }
+      function gvPdf(map,kw){ const k=Object.keys(map||{}).find(x=>x.toLowerCase().includes(kw.toLowerCase())); return k!=null?map[k]:0; }
 
-      const allRB=gv(totals,'01T'),allRL=gv(totals,'02T'),allLB=gv(totals,'03T');
-      const allOP=gv(totals,'04T'),allLQ=gv(totals,'06T');
-      const pCMV=allRB?Math.abs(gv(totals,'03 Custo')||gv(totals,'03 Despesas'))/allRB*100:0;
-      const pImp=allRB?Math.abs(gv(totals,'02.1'))/allRB*100:0;
+      const allRB=gvPdf(totals,'01T'),allRL=gvPdf(totals,'02T'),allLB=gvPdf(totals,'03T');
+      const allOP=gvPdf(totals,'04T'),allLQ=gvPdf(totals,'06T');
+      const pCMV=allRB?Math.abs(gvPdf(totals,'03 Custo')||gvPdf(totals,'03 Despesas'))/allRB*100:0;
+      const pImp=allRB?Math.abs(gvPdf(totals,'02.1'))/allRB*100:0;
       const mOp=allRB?allOP/allRB*100:0,mLiq=allRB?allLQ/allRB*100:0,mBr=allRB?allLB/allRB*100:0;
 
       // KPIs (always from full totals for context)
@@ -1643,8 +1700,8 @@ async function exportPDF(type, cfg){
       const colLabel=isAcumPdf?'DRE Gerencial — Acumulado':'DRE Gerencial — '+mCols.join(', ');
       secTit(colLabel);
 
-      // Calculate column widths
-      const colCat=78;
+      // Calculate column widths — landscape A4, smaller cat column = more data space
+      const colCat=62;
       // Each month gets: valor + optional AV + optional AH (except first month no AH)
       const colsPerMonth=1+(showAVpdf?1:0);
       const colAH=showAHpdf?1:0; // AH cols (one per month after first)
@@ -1675,36 +1732,119 @@ async function exportPDF(type, cfg){
       });
       y+=6.5;
 
-      // Paint rows
+      // Build a value function for PDF that respects fonte + externaCats
+      const pdfFonte=cfg.fonte||S.fonte;
+      // Reuse the same external cats detection logic
+      function pdfExternaCats(){
+        let fat01xCat=null,fat01xChildren=[],cmvLeaf=null;
+        let in01=false,in01x=false,in03=false,in03x=false;
+        for(let i=0;i<cats.length;i++){
+          const c=cats[i]; const lv=catLevel(c);
+          if(lv===0&&/^01T/.test(c)){in01=false;in01x=false;continue;}
+          if(lv===0&&/^03T/.test(c)){in03=false;in03x=false;continue;}
+          if(lv===1&&/^01 /.test(c)){in01=true;in01x=false;continue;}
+          if(lv===1&&/^03 /.test(c)){in03=true;in03x=false;continue;}
+          if(lv===1){in01=false;in01x=false;in03=false;in03x=false;continue;}
+          if(in01&&lv===2&&!fat01xCat){fat01xCat=c;in01x=true;continue;}
+          if(in01x){if(lv<=2)in01x=false;else{fat01xChildren.push(c);continue;}}
+          if(in03&&lv===2){in03x=true;continue;}
+          if(in03x){if(lv<=2)in03x=false;else if(!cmvLeaf)cmvLeaf=c;continue;}
+        }
+        if(!cmvLeaf){for(const c of cats){if(/^03\.\d/.test(c)&&catLevel(c)===2){cmvLeaf=c;break;}}}
+        return{fat01xCat,fat01xChildren,cmvLeaf};
+      }
+      const pdfExt=pdfFonte==='externa'?pdfExternaCats():{fat01xCat:null,fat01xChildren:[],cmvLeaf:null};
+
+      function pdfVal(period,cat){
+        const raw=(byPeriod[period]||{})[cat]||0;
+        if(pdfFonte!=='externa') return raw;
+        const ext=S.fatCMV[period]||{};
+        if(ext.cmv&&cat===pdfExt.cmvLeaf) return -Math.abs(ext.cmv);
+        return raw;
+      }
+      function pdfAgg(period,cat){
+        const lv=catLevel(cat);
+        if(lv>=3) return pdfVal(period,cat);
+        const idx=cats.indexOf(cat); if(idx<0) return pdfVal(period,cat);
+        if(pdfFonte==='externa'&&cat===pdfExt.fat01xCat){
+          const ext=S.fatCMV[period]||{}; return ext.fat||pdfChildSum(period,cat,lv);
+        }
+        if(lv===0){ let s=0; for(let i=0;i<idx;i++){if(catLevel(cats[i])===1)s+=pdfAgg(period,cats[i]);} return s; }
+        return pdfChildSum(period,cat,lv);
+      }
+      function pdfChildSum(period,cat,lv){
+        const idx=cats.indexOf(cat); if(idx<0) return pdfVal(period,cat);
+        const cl=lv+1; let t=0,f=false;
+        for(let i=idx+1;i<cats.length;i++){const c=cats[i];const cv=catLevel(c);if(cv<=lv)break;if(cv===cl){t+=pdfAgg(period,c);f=true;}}
+        return f?t:pdfVal(period,cat);
+      }
+      function pdfRB(period){
+        if(pdfFonte!=='externa') return gv(byPeriod[period]||{},'01T');
+        const c01T=cats.find(c=>/01T/.test(c)); return c01T?pdfAgg(period,c01T):gv(byPeriod[period]||{},'01T');
+      }
+
+      // Paint rows - skip hidden children, inject Faturamento Preenchido
+      const hiddenInPdf=new Set(pdfExt.fat01xChildren);
+      let pdfFatInjected=false;
       cats.forEach(cat=>{
-        // Compute cell values
+        if(hiddenInPdf.has(cat)) return;
         const cells=[];
         if(isAcumPdf){
-          const tv=totals[cat]||0;
-          const rb=gv(totals,'01T')||1;
+          const tv=mCols.reduce((s,m)=>s+pdfAgg(m,cat),0);
+          const rb=mCols.reduce((s,m)=>s+pdfRB(m),0)||1;
           cells.push(fmtPdf(tv));
           if(showAVpdf) cells.push((tv/rb*100).toFixed(1)+'%');
         } else {
           let rowT=0;
           mCols.forEach((m,mi)=>{
-            const mv=(byPeriod[m]||{})[cat]||0; rowT+=mv;
-            const rbM=pRB(m)||1;
+            const mv=pdfAgg(m,cat); rowT+=mv;
+            const rbM=pdfRB(m)||1;
             cells.push(fmtPdf(mv));
             if(showAVpdf) cells.push((mv/rbM*100).toFixed(1)+'%');
             if(showAHpdf&&mi>0){
-              const prev=(byPeriod[mCols[mi-1]]||{})[cat]||0;
-              if(prev!==0){ const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1); cells.push((ah>=0?'+':'')+ah+'%'); }
+              const prev=pdfAgg(mCols[mi-1],cat);
+              if(prev!==0){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);cells.push((ah>=0?'+':'')+ah+'%');}
               else cells.push('—');
             }
           });
           if(mCols.length>1){
-            const rbT=mCols.reduce((s,pp)=>s+pRB(pp),0)||1;
-            cells.push(fmtPdf(rowT));
-            if(showAVpdf) cells.push((rowT/rbT*100).toFixed(1)+'%');
+            const rbT=mCols.reduce((s,pp)=>s+pdfRB(pp),0)||1;
+            cells.push(fmtPdf(rowT)); if(showAVpdf) cells.push((rowT/rbT*100).toFixed(1)+'%');
           }
         }
         const widths=cells.map(()=>eachW);
         paintRow(cat,cells,colCat,widths);
+
+        // Inject "Faturamento Preenchido" after fat01xCat
+        if(pdfFonte==='externa'&&cat===pdfExt.fat01xCat&&!pdfFatInjected){
+          pdfFatInjected=true;
+          const synCells=[];
+          if(isAcumPdf){
+            const tv=mCols.reduce((s,m)=>s+((S.fatCMV[m]||{}).fat||0),0);
+            const rb=mCols.reduce((s,m)=>s+pdfRB(m),0)||1;
+            synCells.push(fmtPdf(tv)); if(showAVpdf) synCells.push((tv/rb*100).toFixed(1)+'%');
+          } else {
+            let rowT=0;
+            mCols.forEach((m,mi)=>{
+              const mv=(S.fatCMV[m]||{}).fat||0; rowT+=mv; const rbM=pdfRB(m)||1;
+              synCells.push(fmtPdf(mv)); if(showAVpdf) synCells.push((mv/rbM*100).toFixed(1)+'%');
+              if(showAHpdf&&mi>0){
+                const prev=(S.fatCMV[mCols[mi-1]]||{}).fat||0;
+                if(prev){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);synCells.push((ah>=0?'+':'')+ah+'%');}
+                else synCells.push('—');
+              }
+            });
+            if(mCols.length>1){const rbT=mCols.reduce((s,pp)=>s+pdfRB(pp),0)||1;synCells.push(fmtPdf(rowT));if(showAVpdf)synCells.push((rowT/rbT*100).toFixed(1)+'%');}
+          }
+          chkY(5.5);
+          doc.setFillColor(253,245,224); doc.rect(margin,y,cW,5.5,'F');
+          doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(184,146,42);
+          doc.text('  ✦ Faturamento Preenchido',margin+2+5,y+3.9);
+          doc.setTextColor(22,22,26);
+          let xC=margin+colCat;
+          synCells.forEach(val=>{ xC+=eachW; doc.text(val,xC-1,y+3.9,{align:'right'}); });
+          y+=5.5;
+        }
       });
     }
 
@@ -1763,7 +1903,7 @@ async function exportPDF(type, cfg){
       doc.setPage(i);
       doc.setFillColor(244,245,248); doc.rect(0,PH-9,PW,9,'F');
       doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
-      doc.text('FinancePro · '+now+' · Confidencial',margin,PH-4);
+      doc.text('Hands On Gestão Financeira · '+now+' · Confidencial',margin,PH-4);
       doc.text('Pág. '+i+'/'+pc,PW-margin,PH-4,{align:'right'});
     }
     setBar(100);
