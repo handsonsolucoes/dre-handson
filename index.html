@@ -1020,8 +1020,10 @@ function renderGer(con, parsed, meta, fonte){
     const allRL=sumCat(c02T); // Receita Líquida = RB + deduções (negative)
     const allLB=sumCat(c03T); // Lucro Bruto = RL + custos operacionais (negative)
     const allOP=sumCat(c04T); // Lucro Operacional = LB + despesas operacionais (negative)
-    const allLQ=sumCat(c06T); // Lucro Líquido = LO + rec/desp financeiras + não operacionais
-    const allFinal=c07T?sumCat(c07T):0; // Lucro Final = LL + investimentos/empréstimos
+    // Lucro Líquido: use last T-row available (07T, 06T, or 04T as fallback)
+    const lastTrow=c07T||c06T||c04T||'';
+    const allLQ=sumCat(lastTrow); // Final result = last T-row in the DRE
+    const allFinal=c07T?sumCat(c07T):(c06T?sumCat(c06T):sumCat(c04T));
 
     // CMV: sum of level-2 sub-rows inside 03 group (costs)
     let cmvSum=0;
@@ -1040,7 +1042,7 @@ function renderGer(con, parsed, meta, fonte){
 
     const lbs=msArr.map(p=>p.replace('/20','/'));
     const moArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,c04T)/rb*100).toFixed(2); });
-    const mlArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,c06T)/rb*100).toFixed(2); });
+    const mlArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,lastTrow)/rb*100).toFixed(2); });
     const mcArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,c03T)/rb*100).toFixed(2); });
     const cmvArr=msArr.map(p=>{
       const rb=pRB(p)||1; let cv=0;
@@ -1055,6 +1057,8 @@ function renderGer(con, parsed, meta, fonte){
            moMean:avg(moArr),mlMean:avg(mlArr)};
   }
 
+  let chartsInitialized=false;
+
   function buildT(){
     const ms=[...selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
     S.gerView={selP,isAcum,showAV,showAH,fonte}; // save current filter state
@@ -1063,7 +1067,26 @@ function renderGer(con, parsed, meta, fonte){
     // Recompute KPIs and update cards based on currently selected periods
     const K=computeKPIs(selP);
     updateKPICards(K);
-    updateCharts(K);
+    // Update active filters bar
+    const fb=el('ger-active-filters');
+    if(fb){
+      const msSorted=[...selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
+      const isAllP=selP.size===periods.length;
+      const fonteLabel=fonte==='externa'
+        ?'<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--goldb);color:var(--gold);border-radius:20px;font-size:11px;font-weight:700;border:1px solid rgba(184,146,42,.3)">🌐 Dados Externos</span>'
+        :'<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--acb);color:var(--ac);border-radius:20px;font-size:11px;font-weight:700;border:1px solid rgba(30,79,170,.2)">🏠 Dados Internos</span>';
+      const periodLabel=isAllP
+        ?'<span style="padding:4px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:20px;font-size:11px;font-weight:600;color:var(--tx2)">Acumulado (todos os períodos)</span>'
+        :msSorted.map(p=>`<span style="padding:4px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:20px;font-size:11px;font-weight:600;color:var(--tx2)">${p}</span>`).join('');
+      const acumBadge=isAcum?'<span style="padding:4px 10px;background:#e8f0fb;border:1px solid rgba(30,79,170,.2);border-radius:20px;font-size:11px;font-weight:600;color:var(--ac)">Visão Acumulada</span>':'';
+      fb.innerHTML=`<span style="font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-right:4px">Filtros:</span>${fonteLabel} ${periodLabel} ${acumBadge}`;
+    }
+    if(chartsInitialized){
+      updateCharts(K);
+    } else {
+      createCharts(K);
+      chartsInitialized=true;
+    }
 
     const selTotals={};
     cats.forEach(cat=>{ selTotals[cat]=ms.reduce((s,p)=>s+pvAgg(p,cat),0); });
@@ -1181,6 +1204,7 @@ function renderGer(con, parsed, meta, fonte){
     <button class="btn btn-sm btn-outline" onclick="openUp('ger')">↩ Substituir</button></div>`:'';
 
   con.innerHTML=`${fb}
+    <div id="ger-active-filters" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 14px;background:var(--sf);border:1px solid var(--bd2);border-radius:var(--rs);box-shadow:var(--sh)"></div>
     <div class="kpi-grid" id="ger-kpi-grid">
       <div class="kpi" id="kpi-rb"><div class="kpi-label">Receita Bruta</div><div class="kpi-value bl" id="kv-rb">—</div><div class="kpi-sub" id="ks-rb">Período selecionado</div></div>
       <div class="kpi" id="kpi-rl"><div class="kpi-label">Receita Líquida</div><div class="kpi-value" id="kv-rl">—</div><div class="kpi-sub" id="ks-rl">—</div></div>
@@ -1249,7 +1273,10 @@ function renderGer(con, parsed, meta, fonte){
     setKS('ks-op',  'Mg. Op.: '+K.mOp.toFixed(1)+'%');
     setKV('kv-lq',  fK(K.allLQ), K.allLQ>=0?'gn':'rd');
     setKC('kpi-lq', K.allLQ>=0?'gn':'rd');
-    setKS('ks-lq',  'Mg. Líq.: '+K.mLiq.toFixed(1)+'%');
+    setKS('ks-lq',  'Mg. Final: '+K.mLiq.toFixed(1)+'%');
+    // Also update the card label to match
+    const lqLblEl=document.querySelector('#kpi-lq .kpi-label');
+    if(lqLblEl) lqLblEl.textContent='Resultado Final';
     setKV('kv-med', fK(K.n?K.allRB/K.n:0), 'bl');
     setKS('ks-med', K.n+' mês(es)');
   }
@@ -1303,11 +1330,12 @@ function renderGer(con, parsed, meta, fonte){
     }
   }
 
-  buildT();
+  /* ─── CHARTS (initialized by buildT above which calls computeKPIs(selP)) ─── */
+  /* buildT() already called updateKPICards and updateCharts with correct selP data */
+  /* We only need to initialize the chart objects now, using the data from buildT's K */
 
-  /* ─── CHARTS (initialized with all-periods data, updated via updateCharts) ─── */
-  const K0=computeKPIs(new Set(periods)); // initial render with all periods
-  updateKPICards(K0); // also set initial KPI values
+  // Enable crisp rendering on high-DPI screens
+  Chart.defaults.devicePixelRatio = window.devicePixelRatio || 2;
 
   const datalabelPlugin = {
     id:'discreteLabels',
@@ -1361,65 +1389,85 @@ function renderGer(con, parsed, meta, fonte){
       options:{
         responsive:true,maintainAspectRatio:false,
         plugins:{
-          legend:{display:true,labels:{font:{size:9},boxWidth:12,filter:item=>item.text!==''}},
+          legend:{display:true,labels:{font:{size:10},boxWidth:12,filter:item=>item.text!==''}},
           tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+ctx.parsed.y.toFixed(1)+'%'}}
         },
         scales:{
-          x:{ticks:{autoSkip:false,maxRotation:50,font:{size:9.5}}},
-          y:{ticks:{font:{size:9.5},callback:v=>v.toFixed(0)+'%'},grid:{color:'rgba(0,0,0,0.04)'}}
+          x:{ticks:{autoSkip:false,maxRotation:50,font:{size:10}},grid:{color:'rgba(0,0,0,0.04)'}},
+          y:{ticks:{font:{size:10},callback:v=>v.toFixed(0)+'%'},grid:{color:'rgba(0,0,0,0.04)'}}
         }
       }
     });
     S.charts.push(ch); return ch;
   }
-  const K0lbs=K0.lbs;
-  chartRefs.mo=singleLineCh('c-mo', K0.moArr, K0lbs, '#15803d', K0.moMean);
-  chartRefs.ml=singleLineCh('c-ml', K0.mlArr, K0lbs, '#1e4faa', K0.mlMean);
+  // crisp rendering: set devicePixelRatio on each canvas
+  function crispCanvas(id){
+    const cv=el(id); if(!cv)return;
+    const dpr=window.devicePixelRatio||1;
+    const rect=cv.getBoundingClientRect();
+    cv.width=Math.round(rect.width*dpr||400*dpr);
+    cv.height=Math.round(rect.height*dpr||180*dpr);
+    cv.style.width=(rect.width||400)+'px';
+    cv.style.height=(rect.height||180)+'px';
+    const ctx=cv.getContext('2d');
+    ctx.scale(dpr,dpr);
+  }
 
-  // Mg Contribuição + % CMV
-  chartRefs.mc=new Chart(el('c-mc'),{
-    type:'line',
-    data:{
-      labels:K0lbs,
-      datasets:[
-        {data:K0.mcArr,borderColor:'#b45309',backgroundColor:'rgba(180,83,9,.08)',tension:0.35,pointRadius:3.5,fill:true,borderWidth:2,label:'Mg. Contr.',showLabels:false},
-        {data:K0.cmvArr,borderColor:'#b91c1c',backgroundColor:'transparent',tension:0.35,pointRadius:3,fill:false,borderWidth:1.8,borderDash:[4,3],label:'% CMV',showLabels:false}
-      ]
-    },
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      plugins:{
-        legend:{display:true,labels:{font:{size:9},boxWidth:12}},
-        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+ctx.parsed.y.toFixed(1)+'%'}}
-      },
-      scales:{
-        x:{ticks:{autoSkip:false,maxRotation:50,font:{size:9.5}}},
-        y:{ticks:{font:{size:9.5},callback:v=>v.toFixed(0)+'%'},grid:{color:'rgba(0,0,0,0.04)'}}
-      }
-    }
-  });
-  const c3=chartRefs.mc; S.charts.push(c3);
+  // shared chart options
+  const scaleOpts={
+    x:{ticks:{autoSkip:false,maxRotation:50,font:{size:10}},grid:{color:'rgba(0,0,0,0.04)'}},
+    y:{ticks:{font:{size:10},callback:v=>v.toFixed(0)+'%'},grid:{color:'rgba(0,0,0,0.04)'}}
+  };
+  const scaleOptsBar={
+    x:{ticks:{autoSkip:false,maxRotation:50,font:{size:10}},grid:{color:'rgba(0,0,0,0.04)'}},
+    y:{ticks:{font:{size:10},callback:v=>{const a=Math.abs(v);return(v<0?'−':'')+'R$'+(a>=1000?(a/1000).toFixed(0)+'k':a);}},grid:{color:'rgba(0,0,0,0.04)'}}
+  };
 
-  chartRefs.rv=new Chart(el('c-rv'),{
-    type:'bar',
-    data:{labels:K0lbs,datasets:[
-      {label:'Receita Bruta',data:K0.recArr,backgroundColor:'rgba(30,79,170,.65)',borderRadius:3},
-      {label:'Result. Op.',data:K0.opArr,backgroundColor:K0.opArr.map(v=>v>=0?'rgba(21,128,61,.65)':'rgba(185,28,28,.65)'),borderRadius:3}
-    ]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{font:{size:9.5},boxWidth:9}}},scales:{x:{ticks:{autoSkip:false,maxRotation:50,font:{size:9.5}}},y:{ticks:{font:{size:9.5},callback:v=>{const a=Math.abs(v);return(v<0?'−':'')+'R$'+(a>=1000?(a/1000).toFixed(0)+'k':a);}}}}}
-  });
-  const c4=chartRefs.rv; S.charts.push(c4);
+  function createCharts(K){
+    ['c-mo','c-ml','c-mc','c-rv','c-cm'].forEach(id=>crispCanvas(id));
+    const lbs=K.lbs;
 
-  chartRefs.cm=new Chart(el('c-cm'),{
-    type:'line',
-    data:{labels:K0lbs,datasets:[
-      {label:'Mg.Contr.',data:K0.mcArr,borderColor:'#b45309',backgroundColor:'transparent',tension:0.3,pointRadius:2,borderDash:[4,2],borderWidth:1.5},
-      {label:'Mg.Op.',data:K0.moArr,borderColor:'#15803d',backgroundColor:'transparent',tension:0.3,pointRadius:2,borderWidth:1.5},
-      {label:'Mg.Líq.',data:K0.mlArr,borderColor:'#1e4faa',backgroundColor:'transparent',tension:0.3,pointRadius:2,borderWidth:1.5}
-    ]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{font:{size:9.5},boxWidth:9}}},scales:{x:{ticks:{autoSkip:false,maxRotation:50,font:{size:9.5}}},y:{ticks:{font:{size:9.5},callback:v=>v.toFixed(0)+'%'}}}}
-  });
-  const c5=chartRefs.cm; S.charts.push(c5);
+    chartRefs.mo=singleLineCh('c-mo', K.moArr, lbs, '#15803d', K.moMean);
+    chartRefs.ml=singleLineCh('c-ml', K.mlArr, lbs, '#1e4faa', K.mlMean);
+
+    chartRefs.mc=new Chart(el('c-mc'),{
+      type:'line',
+      data:{labels:lbs,datasets:[
+        {data:K.mcArr,borderColor:'#b45309',backgroundColor:'rgba(180,83,9,.08)',tension:0.35,pointRadius:3.5,fill:true,borderWidth:2,label:'Mg. Contr.',showLabels:false},
+        {data:K.cmvArr,borderColor:'#b91c1c',backgroundColor:'transparent',tension:0.35,pointRadius:3,fill:false,borderWidth:1.8,borderDash:[4,3],label:'% CMV',showLabels:false}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:true,labels:{font:{size:10},boxWidth:12}},
+          tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+ctx.parsed.y.toFixed(1)+'%'}}},
+        scales:scaleOpts}
+    });
+    S.charts.push(chartRefs.mc);
+
+    chartRefs.rv=new Chart(el('c-rv'),{
+      type:'bar',
+      data:{labels:lbs,datasets:[
+        {label:'Receita Bruta',data:K.recArr,backgroundColor:'rgba(30,79,170,.65)',borderRadius:3},
+        {label:'Result. Op.',data:K.opArr,backgroundColor:K.opArr.map(v=>v>=0?'rgba(21,128,61,.65)':'rgba(185,28,28,.65)'),borderRadius:3}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:true,labels:{font:{size:10},boxWidth:9}}},
+        scales:scaleOptsBar}
+    });
+    S.charts.push(chartRefs.rv);
+
+    chartRefs.cm=new Chart(el('c-cm'),{
+      type:'line',
+      data:{labels:lbs,datasets:[
+        {label:'Mg.Contr.',data:K.mcArr,borderColor:'#b45309',backgroundColor:'transparent',tension:0.3,pointRadius:2,borderDash:[4,2],borderWidth:1.5},
+        {label:'Mg.Op.',data:K.moArr,borderColor:'#15803d',backgroundColor:'transparent',tension:0.3,pointRadius:2,borderWidth:1.5},
+        {label:'Mg.Líq.',data:K.mlArr,borderColor:'#1e4faa',backgroundColor:'transparent',tension:0.3,pointRadius:2,borderWidth:1.5}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:true,labels:{font:{size:10},boxWidth:9}}},
+        scales:scaleOpts}
+    });
+    S.charts.push(chartRefs.cm);
+  }
 
   /* ─── CONTROLS ─── */
   W._gP=(e,p,i)=>{
@@ -1439,30 +1487,28 @@ function renderGer(con, parsed, meta, fonte){
   // Fonte toggle: changes S.fonte then rebuilds via buildT (which re-reads S.fonte via closure)
   W._gSetFonte=(f)=>{
     S.fonte=f;
-    // Update externaCats for the new fonte
-    const newExt=(f==='externa')?findExternaCats():{fat01xCat:null,fat01xChildren:[],cmvLeaf:null};
-    // Reassign externaCats in closure scope — needs re-evaluation
-    // Since externaCats is const in closure, we rebuild by calling renderGer again
-    // but preserve current selP, isAcum, showAV, showAH state
+    // Save current filter state before re-rendering
     const savedSelP=selP, savedIsAcum=isAcum, savedShowAV=showAV, savedShowAH=showAH;
+    // Kill charts and re-render with new fonte — this creates a new closure
     killCharts();
     renderGer(el('ger-con'), S.parsed.ger, S.data.gerMeta, f);
-    // Restore state after re-render
-    // (renderGer will call buildT with defaults, so we need to apply saved state)
+    // After renderGer, W._gerRestoreState points to the NEW closure
+    // Restore saved filter state (periods, acum, AV, AH)
     if(W._gerRestoreState){
       W._gerRestoreState(savedSelP, savedIsAcum, savedShowAV, savedShowAH);
     }
   };
 
-  // Expose state restoration for setFonte
+  // Expose state restoration for setFonte — must run AFTER new renderGer completes
   W._gerRestoreState=(savedSelP, savedIsAcum, savedShowAV, savedShowAH)=>{
+    // Assign into the NEW closure's local variables
     selP=savedSelP; isAcum=savedIsAcum; showAV=savedShowAV; showAH=savedShowAH;
     // Re-sync period pills
     document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.toggle('active',selP.has(e.dataset.p)));
-    el('btn-acum').classList.toggle('on',isAcum);
-    el('btn-av').classList.toggle('on',showAV);
-    el('btn-ah').classList.toggle('on',showAH);
-    buildT();
+    if(el('btn-acum')) el('btn-acum').classList.toggle('on',isAcum);
+    if(el('btn-av'))   el('btn-av').classList.toggle('on',showAV);
+    if(el('btn-ah'))   el('btn-ah').classList.toggle('on',showAH);
+    buildT(); // rebuild with correct fonte (already set) + restored state
   };
 }
 
@@ -1534,16 +1580,21 @@ function openPdfFilter(type){
   W._pdfTogAcum=()=>{
     pdfAcum=true;
     el('pdf-acum-tog').classList.add('on'); el('pdf-mes-tog').classList.remove('on');
-    el('pdf-period-pills').style.display='none';
+    el('pdf-period-pills').style.opacity='0.45';
+    el('pdf-period-pills').style.pointerEvents='none';
   };
   W._pdfTogMes=()=>{
     pdfAcum=false;
     el('pdf-mes-tog').classList.add('on'); el('pdf-acum-tog').classList.remove('on');
-    el('pdf-period-pills').style.display='flex';
+    el('pdf-period-pills').style.opacity='1';
+    el('pdf-period-pills').style.pointerEvents='auto';
   };
 
-  // Period pills — pre-select from current page state
+  // Period pills — pre-select from current page state, always visible
   const activePeriodsInPage = curSelP ? new Set(curSelP) : new Set(periods);
+  el('pdf-period-pills').style.display='flex';
+  el('pdf-period-pills').style.opacity=pdfAcum?'0.45':'1';
+  el('pdf-period-pills').style.pointerEvents=pdfAcum?'none':'auto';
   el('pdf-period-pills').innerHTML=periods.map(p=>`
     <span class="pill${activePeriodsInPage.has(p)?' active':''}" data-p="${p}" style="font-size:11px;padding:4px 10px"
       onclick="this.classList.toggle('active')">${p}</span>`).join('');
@@ -1578,7 +1629,8 @@ function openPdfFilter(type){
 
   // Store refs for confirmPdfExport to read
   W._pdfGetConfig=()=>{
-    const selP=pdfAcum?periods:[...el('pdf-period-pills').querySelectorAll('.pill.active')].map(e=>e.dataset.p);
+    // Always read selected pills — pdfAcum only controls display mode, not period selection
+    const selP=[...el('pdf-period-pills').querySelectorAll('.pill.active')].map(e=>e.dataset.p);
     let selCC='total';
     if(type==='cc'){
       const active=[...document.querySelectorAll('#pdf-cc-pills .chip.active')].map(e=>e.dataset.cc).filter(c=>c!=='total');
@@ -1671,10 +1723,19 @@ async function exportPDF(type, cfg){
       const{cats,byPeriod,totals,periods}=p;
       function gvPdf(map,kw){ const k=Object.keys(map||{}).find(x=>x.toLowerCase().includes(kw.toLowerCase())); return k!=null?map[k]:0; }
 
-      const allRB=gvPdf(totals,'01T'),allRL=gvPdf(totals,'02T'),allLB=gvPdf(totals,'03T');
-      const allOP=gvPdf(totals,'04T'),allLQ=gvPdf(totals,'06T');
-      const pCMV=allRB?Math.abs(gvPdf(totals,'03 Custo')||gvPdf(totals,'03 Despesas'))/allRB*100:0;
-      const pImp=allRB?Math.abs(gvPdf(totals,'02.1'))/allRB*100:0;
+      // Compute KPIs using FILTERED periods (mCols) and fonte, via pdfAgg
+      function sumCatPdf(catKw){ const c=cats.find(x=>(new RegExp(catKw)).test(x))||''; return c?mCols.reduce((s,m)=>s+pdfAgg(m,c),0):0; }
+      const allRB=sumCatPdf('01T'); const allRL=sumCatPdf('02T');
+      const allLB=sumCatPdf('03T'); const allOP=sumCatPdf('04T');
+      // Last T-row = final profit
+      const lastTpdf=cats.filter(c=>/\dT /.test(c)).pop()||'';
+      const allLQ=lastTpdf?mCols.reduce((s,m)=>s+pdfAgg(m,lastTpdf),0):sumCatPdf('06T');
+      let cmvSumPdf=0;
+      cats.forEach(c=>{ if(/^03\.\d/.test(c)&&catLevel(c)===2) cmvSumPdf+=mCols.reduce((s,m)=>s+pdfAgg(m,c),0); });
+      let impSumPdf=0;
+      cats.forEach(c=>{ if(/^02\.1/.test(c)) impSumPdf+=mCols.reduce((s,m)=>s+pdfAgg(m,c),0); });
+      const pCMV=allRB?Math.abs(cmvSumPdf)/allRB*100:0;
+      const pImp=allRB?Math.abs(impSumPdf)/allRB*100:0;
       const mOp=allRB?allOP/allRB*100:0,mLiq=allRB?allLQ/allRB*100:0,mBr=allRB?allLB/allRB*100:0;
 
       // KPIs (always from full totals for context)
@@ -1686,7 +1747,7 @@ async function exportPDF(type, cfg){
         {l:'% Impostos',v:pImp.toFixed(1)+'%',s:'Sobre rec. bruta'},
         {l:'Lucro Bruto',v:fK(allLB),s:'Mg Bruta: '+mBr.toFixed(1)+'%'},
         {l:'Result. Oper.',v:fK(allOP),s:'Mg Op.: '+mOp.toFixed(1)+'%'},
-        {l:'Resultado Líq.',v:fK(allLQ),s:'Mg Liq.: '+mLiq.toFixed(1)+'%'},
+        {l:'Resultado Final',v:fK(allLQ),s:'Mg Final: '+mLiq.toFixed(1)+'%'},
         {l:'Rec. Média/Mês',v:fK(allRB/(periods.length||1)),s:periods.length+' meses'},
       ];
       const kw=cW/4, kh=17;
