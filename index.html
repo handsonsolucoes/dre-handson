@@ -273,17 +273,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
     <div class="sec-head">
       <div><div class="sec-title">DRE Gerencial</div><div class="sec-sub">Visão estratégica com KPIs, margens e análise vertical/horizontal</div></div>
       <div class="sec-actions">
-        <!-- Fonte de informações toggle -->
-        <div style="display:flex;align-items:center;gap:0;background:var(--sf2);border:1.5px solid var(--bd);border-radius:var(--rs);overflow:hidden">
-          <button class="fonte-btn active" id="fonte-interna" onclick="setFonte('interna')"
-            style="padding:6px 14px;font-size:12px;font-weight:600;font-family:inherit;border:none;cursor:pointer;background:var(--ac);color:#fff;transition:all .15s">
-            🏠 Interna
-          </button>
-          <button class="fonte-btn" id="fonte-externa" onclick="setFonte('externa')"
-            style="padding:6px 14px;font-size:12px;font-weight:600;font-family:inherit;border:none;cursor:pointer;background:transparent;color:var(--tx2);transition:all .15s">
-            🌐 Externa
-          </button>
-        </div>
         <button class="btn btn-outline btn-sm" onclick="openUp('ger')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Importar
@@ -482,13 +471,12 @@ function switchTab(name){
 }
 
 function setFonte(f){
-  S.fonte=f;
-  el('fonte-interna').style.background=f==='interna'?'var(--ac)':'transparent';
-  el('fonte-interna').style.color=f==='interna'?'#fff':'var(--tx2)';
-  el('fonte-externa').style.background=f==='externa'?'var(--gold)':'transparent';
-  el('fonte-externa').style.color=f==='externa'?'#fff':'var(--tx2)';
-  // Re-render GER with new fonte
-  if(S.parsed.ger){ killCharts(); renderGer(el('ger-con'),S.parsed.ger,S.data.gerMeta,f); }
+  // Delegate to the in-renderGer handler which preserves period/filter state
+  if(W._gSetFonte) W._gSetFonte(f);
+  else {
+    S.fonte=f;
+    if(S.parsed.ger){ killCharts(); renderGer(el('ger-con'),S.parsed.ger,S.data.gerMeta,f); }
+  }
 }
 
 function renderFat(){
@@ -1069,7 +1057,7 @@ function renderGer(con, parsed, meta, fonte){
 
   function buildT(){
     const ms=[...selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
-    S.gerView={selP,isAcum,showAV,showAH};
+    S.gerView={selP,isAcum,showAV,showAH,fonte}; // save current filter state
     const firstP=ms[0];
 
     // Recompute KPIs and update cards based on currently selected periods
@@ -1216,11 +1204,24 @@ function renderGer(con, parsed, meta, fonte){
       <div class="filter-row">
         <span class="filter-label">Período <span class="filter-hint">— Shift+clique para múltiplos</span></span>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          ${fonte==='externa'?'<span class="badge" style="background:var(--goldb);color:var(--gold);font-size:11px">🌐 Usando dados externos</span>':''}
           <button class="btn-tog" id="btn-acum" onclick="W._gAcum()">Acumulado</button>
           <button class="btn-tog" id="btn-av" onclick="W._gAV()">A. Vertical %</button>
           <button class="btn-tog" id="btn-ah" onclick="W._gAH()">A. Horizontal %</button>
         </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd2)">
+        <span class="sl" style="font-size:10.5px">Fonte de dados:</span>
+        <div id="ger-fonte-btns" style="display:flex;border-radius:var(--rs);overflow:hidden;border:1.5px solid var(--bd)">
+          <button id="btn-fonte-int" onclick="W._gSetFonte('interna')"
+            style="padding:5px 13px;font-size:12px;font-weight:600;font-family:inherit;border:none;cursor:pointer;transition:all .15s;background:${fonte==='interna'?'var(--ac)':'transparent'};color:${fonte==='interna'?'#fff':'var(--tx2)'}">
+            🏠 Interna
+          </button>
+          <button id="btn-fonte-ext" onclick="W._gSetFonte('externa')"
+            style="padding:5px 13px;font-size:12px;font-weight:600;font-family:inherit;border:none;cursor:pointer;transition:all .15s;background:${fonte==='externa'?'var(--gold)':'transparent'};color:${fonte==='externa'?'#fff':'var(--tx2)'}">
+            🌐 Externa
+          </button>
+        </div>
+        ${fonte==='externa'?'<span style="font-size:11px;color:var(--gold);font-weight:600">⚡ Usando Faturamento & CMV preenchidos</span>':''}
       </div>
       <div class="pills" id="ger-pills">${periods.map((p,i)=>`<span class="pill active" data-i="${i}" data-p="${p}" onclick="W._gP(event,'${p}',${i})">${p}</span>`).join('')}</div>
     </div>
@@ -1434,6 +1435,35 @@ function renderGer(con, parsed, meta, fonte){
   W._gAV=()=>{ showAV=!showAV; el('btn-av').classList.toggle('on',showAV); buildT(); };
   W._gAH=()=>{ showAH=!showAH; el('btn-ah').classList.toggle('on',showAH); buildT(); };
   W._gTog=(cat,idx)=>{ if(collapsed.has(cat))collapsed.delete(cat); else collapsed.add(cat); buildT(); };
+
+  // Fonte toggle: changes S.fonte then rebuilds via buildT (which re-reads S.fonte via closure)
+  W._gSetFonte=(f)=>{
+    S.fonte=f;
+    // Update externaCats for the new fonte
+    const newExt=(f==='externa')?findExternaCats():{fat01xCat:null,fat01xChildren:[],cmvLeaf:null};
+    // Reassign externaCats in closure scope — needs re-evaluation
+    // Since externaCats is const in closure, we rebuild by calling renderGer again
+    // but preserve current selP, isAcum, showAV, showAH state
+    const savedSelP=selP, savedIsAcum=isAcum, savedShowAV=showAV, savedShowAH=showAH;
+    killCharts();
+    renderGer(el('ger-con'), S.parsed.ger, S.data.gerMeta, f);
+    // Restore state after re-render
+    // (renderGer will call buildT with defaults, so we need to apply saved state)
+    if(W._gerRestoreState){
+      W._gerRestoreState(savedSelP, savedIsAcum, savedShowAV, savedShowAH);
+    }
+  };
+
+  // Expose state restoration for setFonte
+  W._gerRestoreState=(savedSelP, savedIsAcum, savedShowAV, savedShowAH)=>{
+    selP=savedSelP; isAcum=savedIsAcum; showAV=savedShowAV; showAH=savedShowAH;
+    // Re-sync period pills
+    document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.toggle('active',selP.has(e.dataset.p)));
+    el('btn-acum').classList.toggle('on',isAcum);
+    el('btn-av').classList.toggle('on',showAV);
+    el('btn-ah').classList.toggle('on',showAH);
+    buildT();
+  };
 }
 
 /* ═══════════════════════ SCROLL SYNC ═══════════════════════
@@ -1490,11 +1520,16 @@ function openPdfFilter(type){
   if(!p){ toast('Nenhum dado disponível','error'); return; }
   const periods=p.periods;
 
-  // Acumulado/mês toggle state
-  let pdfAcum=true;
-  el('pdf-acum-tog').classList.add('on');
-  el('pdf-mes-tog').classList.remove('on');
-  el('pdf-period-pills').style.display='none';
+  // Pre-fill from current page state
+  const curView = type==='ger' ? S.gerView : null;
+  const curAcum = curView ? curView.isAcum : false;
+  const curSelP = curView ? curView.selP : null;
+
+  let pdfAcum = curAcum;
+  // Sync toggle buttons
+  el('pdf-acum-tog').classList.toggle('on', pdfAcum);
+  el('pdf-mes-tog').classList.toggle('on', !pdfAcum);
+  el('pdf-period-pills').style.display = pdfAcum ? 'none' : 'flex';
 
   W._pdfTogAcum=()=>{
     pdfAcum=true;
@@ -1507,11 +1542,11 @@ function openPdfFilter(type){
     el('pdf-period-pills').style.display='flex';
   };
 
-  // Period pills — pre-select all
-  const selPills=new Set(periods);
+  // Period pills — pre-select from current page state
+  const activePeriodsInPage = curSelP ? new Set(curSelP) : new Set(periods);
   el('pdf-period-pills').innerHTML=periods.map(p=>`
-    <span class="pill active" data-p="${p}" style="font-size:11px;padding:4px 10px"
-      onclick="this.classList.toggle('active'); ">${p}</span>`).join('');
+    <span class="pill${activePeriodsInPage.has(p)?' active':''}" data-p="${p}" style="font-size:11px;padding:4px 10px"
+      onclick="this.classList.toggle('active')">${p}</span>`).join('');
 
   // CC section (only for CC)
   el('pdf-cc-section').style.display=type==='cc'?'block':'none';
@@ -1531,13 +1566,14 @@ function openPdfFilter(type){
     };
   }
 
-  // GER options
+  // GER options — pre-fill from current page state
   el('pdf-ger-opts').style.display=type==='ger'?'block':'none';
   if(type==='ger'){
     el('pdf-opt-av').checked=S.gerView.showAV||false;
     el('pdf-opt-ah').checked=S.gerView.showAH||false;
     const fonteExt=el('pdf-fonte-ext'); const fonteInt=el('pdf-fonte-int');
-    if(fonteExt&&fonteInt){ fonteExt.checked=S.fonte==='externa'; fonteInt.checked=S.fonte!=='externa'; }
+    const curFonte=S.gerView.fonte||S.fonte||'interna';
+    if(fonteExt&&fonteInt){ fonteExt.checked=curFonte==='externa'; fonteInt.checked=curFonte!=='externa'; }
   }
 
   // Store refs for confirmPdfExport to read
@@ -1550,8 +1586,10 @@ function openPdfFilter(type){
     }
     const showAV=type==='ger'&&el('pdf-opt-av').checked;
     const showAH=type==='ger'&&el('pdf-opt-ah').checked;
-    const pdfFonte=type==='ger'?(document.querySelector('input[name="pdf-fonte"]:checked')?.value||S.fonte):null;
-    return{selP, selCC, showAV, showAH, isAcum:pdfAcum, fonte:pdfFonte};
+    const pdfFonte=type==='ger'?(document.querySelector('input[name="pdf-fonte"]:checked')?.value||S.gerView.fonte||S.fonte):null;
+    // selP must always have values: use all periods as fallback for acum
+    const finalSelP=selP&&selP.length?selP:(type==='ger'&&S.parsed.ger?S.parsed.ger.periods:[]);
+    return{selP:finalSelP, selCC, showAV, showAH, isAcum:pdfAcum, fonte:pdfFonte};
   };
 
   openModal('mpdf-filter');
@@ -1690,14 +1728,16 @@ async function exportPDF(type, cfg){
       newPage();
 
       // Determine periods to show
-      const selPer=cfg.isAcum?null:cfg.selP.filter(Boolean);
-      const isAcumPdf=cfg.isAcum||!selPer||!selPer.length;
+      // selP contains the selected periods (for both acum and month-by-month)
+      const allSelP=(cfg.selP||[]).filter(Boolean);
+      const validSelP=allSelP.length?allSelP:periods; // fallback to all if empty
+      const isAcumPdf=cfg.isAcum===true;
       const showAVpdf=cfg.showAV;
       const showAHpdf=cfg.showAH;
 
-      // Build column list
-      const mCols=isAcumPdf?[]:selPer; // empty means acum
-      const colLabel=isAcumPdf?'DRE Gerencial — Acumulado':'DRE Gerencial — '+mCols.join(', ');
+      // mCols: always the list of periods to process
+      const mCols=validSelP; // always have periods; isAcumPdf controls display mode
+      const colLabel=isAcumPdf?'DRE Gerencial — Acumulado ('+validSelP.join(', ')+')':'DRE Gerencial — '+mCols.join(', ');
       secTit(colLabel);
 
       // Calculate column widths — landscape A4, smaller cat column = more data space
@@ -1709,11 +1749,13 @@ async function exportPDF(type, cfg){
       const colW=(cW-colCat)/Math.max(nDataCols,1);
 
       // Build header labels
-      let hdrLabels=[]; // {text, align:'right'|'center', span}
+      let hdrLabels=[];
       if(isAcumPdf){
+        // Single Acumulado column
         hdrLabels.push('Acumulado');
         if(showAVpdf) hdrLabels.push('A.V.%');
       } else {
+        // Month-by-month columns
         mCols.forEach((m,mi)=>{
           hdrLabels.push(m.replace('/20','/'));
           if(showAVpdf) hdrLabels.push('AV%');
