@@ -863,7 +863,7 @@ function renderGer(con, parsed, meta, fonte){
   function hasGerOverride(period,cat){ return !!(S.gerOverrides && S.gerOverrides[period] && Object.prototype.hasOwnProperty.call(S.gerOverrides[period],cat)); }
   function getGerOverride(period,cat){ return S.gerOverrides[period][cat]; }
   function setGerOverride(period,cat,val){ if(!S.gerOverrides[period]) S.gerOverrides[period]={}; S.gerOverrides[period][cat]=val; }
-  function parseMoneyInput(v){ const str=String(v||'').trim().replace(/R$|s/g,''); if(!str)return NaN; const normalized=str.includes(',')?str.replace(/./g,'').replace(',','.'):str; return parseFloat(normalized); }
+  function parseMoneyInput(v){ const str=String(v||'').trim().replace(/R\$|\s/g,''); if(!str)return NaN; const normalized=str.includes(',')?str.replace(/\./g,'').replace(',','.'):str; return parseFloat(normalized); }
   function moneyForInput(v){ return Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function encCat(cat){ return encodeURIComponent(cat).replace(/'/g,'%27'); }
   // Build a map of which leaf cat to inject FAT and CMV externally.
@@ -1152,7 +1152,7 @@ function renderGer(con, parsed, meta, fonte){
           if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
           if(showAH&&mi>0){
             const prevVal=pvAgg(ms[mi-1],cat);
-            if(prevVal!==0){const ah=+((Math.abs(mv)-Math.abs(prevVal))/Math.abs(prevVal)*100).toFixed(1); h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+            if(prevVal!==0){const ah=+((mv-prevVal)/Math.abs(prevVal)*100).toFixed(1); h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
             else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
           }
         });
@@ -1180,7 +1180,7 @@ function renderGer(con, parsed, meta, fonte){
               if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
               if(showAH&&mi>0){
                 const prev=(S.fatCMV[ms[mi-1]]||{}).fat||0;
-                if(prev){const ah=+((Math.abs(mv)-Math.abs(prev))/Math.abs(prev)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+                if(prev){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
                 else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
               }
             });
@@ -1203,8 +1203,12 @@ function renderGer(con, parsed, meta, fonte){
   con.innerHTML=`${fb}
     <div id="ger-active-filters" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 14px;background:var(--sf);border:1px solid var(--bd2);border-radius:var(--rs);box-shadow:var(--sh)"></div>
     <div class="filter-card">
-      <div class="filter-row"><span class="filter-label">Categorias do numerador do % CMV</span><span class="filter-hint">Selecione quais linhas de custos entram no cálculo do indicador.</span></div>
-      <div style="display:flex;flex-wrap:wrap;gap:5px" id="ger-cmv-chips">${defaultCMVCats.map(c=>`<span class="chip${selectedCMVCats().includes(c)?' active':''}" data-cmv-cat="${encCat(c)}" onclick="W._gCMV('${encCat(c)}',this)">${c}</span>`).join('')}</div>
+      <div class="filter-row"><span class="filter-label">Categorias do numerador do % CMV</span><span class="filter-hint">Use CTRL para selecionar mais de uma categoria.</span></div>
+      <select id="ger-cmv-select" multiple size="6" onchange="W._gCMVSelect(this)"
+        style="width:100%;min-height:128px;padding:8px 10px;border:1.5px solid var(--bd);border-radius:var(--rs);font-size:12.5px;font-family:inherit;color:var(--tx);background:var(--sf);outline:none">
+        ${defaultCMVCats.map(c=>`<option value="${encCat(c)}" ${selectedCMVCats().includes(c)?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <div style="font-size:11px;color:var(--tx3);margin-top:6px">O % CMV soma as categorias selecionadas no período filtrado e divide pela Receita Bruta do mesmo período.</div>
     </div>
     <div class="kpi-grid" id="ger-kpi-grid">
       <div class="kpi" id="kpi-rb"><div class="kpi-label">Receita Bruta</div><div class="kpi-value bl" id="kv-rb">—</div><div class="kpi-sub" id="ks-rb">Período selecionado</div></div>
@@ -1485,12 +1489,9 @@ function renderGer(con, parsed, meta, fonte){
   W._gAH=()=>{ showAH=!showAH; el('btn-ah').classList.toggle('on',showAH); buildT(); };
   W._gTog=(cat,idx)=>{ if(collapsed.has(cat))collapsed.delete(cat); else collapsed.add(cat); buildT(); };
 
-  W._gCMV=(encodedCat,elChip)=>{
-    const cat=decodeURIComponent(encodedCat);
-    const cur=new Set(selectedCMVCats());
-    if(cur.has(cat) && cur.size>1) cur.delete(cat); else cur.add(cat);
-    S.cmvCats=[...cur];
-    document.querySelectorAll('#ger-cmv-chips .chip').forEach(ch=>ch.classList.toggle('active',cur.has(decodeURIComponent(ch.dataset.cmvCat))));
+  W._gCMVSelect=(sel)=>{
+    const chosen=[...sel.selectedOptions].map(o=>decodeURIComponent(o.value));
+    S.cmvCats=chosen.length?chosen:[...defaultCMVCats];
     buildT();
   };
 
@@ -1756,6 +1757,63 @@ async function exportPDF(type, cfg){
       const{cats,byPeriod,totals,periods}=p;
       function gvPdf(map,kw){ const k=Object.keys(map||{}).find(x=>x.toLowerCase().includes(kw.toLowerCase())); return k!=null?map[k]:0; }
 
+      // Determine periods and display mode before any KPI calculation
+      const allSelP=(cfg.selP||[]).filter(Boolean);
+      const validSelP=allSelP.length?allSelP:periods;
+      const isAcumPdf=cfg.isAcum===true;
+      const showAVpdf=cfg.showAV;
+      const showAHpdf=cfg.showAH;
+      const mCols=validSelP;
+
+      // Value function for PDF that respects DRE edits and the current data source
+      const pdfFonte=cfg.fonte||S.fonte;
+      function pdfExternaCats(){
+        let fat01xCat=null,fat01xChildren=[],cmvLeaf=null;
+        let in01=false,in01x=false,in03=false,in03x=false;
+        for(let i=0;i<cats.length;i++){
+          const c=cats[i]; const lv=catLevel(c);
+          if(lv===0&&/^01T/.test(c)){in01=false;in01x=false;continue;}
+          if(lv===0&&/^03T/.test(c)){in03=false;in03x=false;continue;}
+          if(lv===1&&/^01 /.test(c)){in01=true;in01x=false;continue;}
+          if(lv===1&&/^03 /.test(c)){in03=true;in03x=false;continue;}
+          if(lv===1){in01=false;in01x=false;in03=false;in03x=false;continue;}
+          if(in01&&lv===2&&!fat01xCat){fat01xCat=c;in01x=true;continue;}
+          if(in01x){if(lv<=2)in01x=false;else{fat01xChildren.push(c);continue;}}
+          if(in03&&lv===2){in03x=true;continue;}
+          if(in03x){if(lv<=2)in03x=false;else if(!cmvLeaf)cmvLeaf=c;continue;}
+        }
+        if(!cmvLeaf){for(const c of cats){if(/^03\.\d/.test(c)&&catLevel(c)===2){cmvLeaf=c;break;}}}
+        return{fat01xCat,fat01xChildren,cmvLeaf};
+      }
+      const pdfExt=pdfFonte==='externa'?pdfExternaCats():{fat01xCat:null,fat01xChildren:[],cmvLeaf:null};
+      function pdfHasOverride(period,cat){ return !!(S.gerOverrides && S.gerOverrides[period] && Object.prototype.hasOwnProperty.call(S.gerOverrides[period],cat)); }
+      function pdfVal(period,cat){
+        if(pdfHasOverride(period,cat)) return S.gerOverrides[period][cat];
+        const raw=(byPeriod[period]||{})[cat]||0;
+        if(pdfFonte!=='externa') return raw;
+        const ext=S.fatCMV[period]||{};
+        if(ext.cmv&&cat===pdfExt.cmvLeaf) return -Math.abs(ext.cmv);
+        return raw;
+      }
+      function pdfAgg(period,cat){
+        if(pdfHasOverride(period,cat)) return S.gerOverrides[period][cat];
+        const lv=catLevel(cat);
+        if(lv>=3) return pdfVal(period,cat);
+        const idx=cats.indexOf(cat); if(idx<0) return pdfVal(period,cat);
+        if(pdfFonte==='externa'&&cat===pdfExt.fat01xCat){
+          const ext=S.fatCMV[period]||{}; return ext.fat||pdfChildSum(period,cat,lv);
+        }
+        if(lv===0){ let s=0; for(let i=0;i<idx;i++){if(catLevel(cats[i])===1)s+=pdfAgg(period,cats[i]);} return s; }
+        return pdfChildSum(period,cat,lv);
+      }
+      function pdfChildSum(period,cat,lv){
+        const idx=cats.indexOf(cat); if(idx<0) return pdfVal(period,cat);
+        const cl=lv+1; let t=0,f=false;
+        for(let i=idx+1;i<cats.length;i++){const c=cats[i];const cv=catLevel(c);if(cv<=lv)break;if(cv===cl){t+=pdfAgg(period,c);f=true;}}
+        return f?t:pdfVal(period,cat);
+      }
+      function pdfRB(period){ const c01T=cats.find(c=>/01T/.test(c)); return c01T?pdfAgg(period,c01T):gvPdf(byPeriod[period]||{},'01T'); }
+
       // Compute KPIs using FILTERED periods (mCols) and fonte, via pdfAgg
       function sumCatPdf(catKw){ const c=cats.find(x=>(new RegExp(catKw)).test(x))||''; return c?mCols.reduce((s,m)=>s+pdfAgg(m,c),0):0; }
       const allRB=sumCatPdf('01T'); const allRL=sumCatPdf('02T');
@@ -1763,8 +1821,10 @@ async function exportPDF(type, cfg){
       // Last T-row = final profit
       const lastTpdf=cats.filter(c=>/\dT /.test(c)).pop()||'';
       const allLQ=lastTpdf?mCols.reduce((s,m)=>s+pdfAgg(m,lastTpdf),0):sumCatPdf('06T');
+      const pdfDefaultCMVCats=cats.filter(c=>/^03\.\d/.test(c)&&catLevel(c)===2);
+      const pdfSelectedCMVCats=(S.cmvCats&&S.cmvCats.length)?S.cmvCats:pdfDefaultCMVCats;
       let cmvSumPdf=0;
-      cats.forEach(c=>{ if(/^03\.\d/.test(c)&&catLevel(c)===2) cmvSumPdf+=mCols.reduce((s,m)=>s+pdfAgg(m,c),0); });
+      pdfSelectedCMVCats.forEach(c=>{ cmvSumPdf+=mCols.reduce((s,m)=>s+pdfAgg(m,c),0); });
       let impSumPdf=0;
       cats.forEach(c=>{ if(/^02\.1/.test(c)) impSumPdf+=mCols.reduce((s,m)=>s+pdfAgg(m,c),0); });
       const pCMV=allRB?Math.abs(cmvSumPdf)/allRB*100:0;
@@ -1821,35 +1881,23 @@ async function exportPDF(type, cfg){
       setMsg('Montando tabela DRE…',''); setBar(60);
       newPage();
 
-      // Determine periods to show
-      // selP contains the selected periods (for both acum and month-by-month)
-      const allSelP=(cfg.selP||[]).filter(Boolean);
-      const validSelP=allSelP.length?allSelP:periods; // fallback to all if empty
-      const isAcumPdf=cfg.isAcum===true;
-      const showAVpdf=cfg.showAV;
-      const showAHpdf=cfg.showAH;
-
-      // mCols: always the list of periods to process
-      const mCols=validSelP; // always have periods; isAcumPdf controls display mode
+      // Table columns use the same period selection and value functions as the KPI section
       const colLabel=isAcumPdf?'DRE Gerencial — Acumulado ('+validSelP.join(', ')+')':'DRE Gerencial — '+mCols.join(', ');
       secTit(colLabel);
 
       // Calculate column widths — landscape A4, smaller cat column = more data space
       const colCat=62;
-      // Each month gets: valor + optional AV + optional AH (except first month no AH)
       const colsPerMonth=1+(showAVpdf?1:0);
-      const colAH=showAHpdf?1:0; // AH cols (one per month after first)
+      const colAH=showAHpdf?1:0;
       const nDataCols=isAcumPdf?1+( showAVpdf?1:0):mCols.length*colsPerMonth+Math.max(0,mCols.length-1)*colAH+(mCols.length>1?1+(showAVpdf?1:0):0);
       const colW=(cW-colCat)/Math.max(nDataCols,1);
 
       // Build header labels
       let hdrLabels=[];
       if(isAcumPdf){
-        // Single Acumulado column
         hdrLabels.push('Acumulado');
         if(showAVpdf) hdrLabels.push('A.V.%');
       } else {
-        // Month-by-month columns
         mCols.forEach((m,mi)=>{
           hdrLabels.push(m.replace('/20','/'));
           if(showAVpdf) hdrLabels.push('AV%');
@@ -1867,57 +1915,6 @@ async function exportPDF(type, cfg){
         doc.text(lbl.substring(0,10),margin+colCat+(li+1)*eachW-1,y+4.5,{align:'right'});
       });
       y+=6.5;
-
-      // Build a value function for PDF that respects fonte + externaCats
-      const pdfFonte=cfg.fonte||S.fonte;
-      // Reuse the same external cats detection logic
-      function pdfExternaCats(){
-        let fat01xCat=null,fat01xChildren=[],cmvLeaf=null;
-        let in01=false,in01x=false,in03=false,in03x=false;
-        for(let i=0;i<cats.length;i++){
-          const c=cats[i]; const lv=catLevel(c);
-          if(lv===0&&/^01T/.test(c)){in01=false;in01x=false;continue;}
-          if(lv===0&&/^03T/.test(c)){in03=false;in03x=false;continue;}
-          if(lv===1&&/^01 /.test(c)){in01=true;in01x=false;continue;}
-          if(lv===1&&/^03 /.test(c)){in03=true;in03x=false;continue;}
-          if(lv===1){in01=false;in01x=false;in03=false;in03x=false;continue;}
-          if(in01&&lv===2&&!fat01xCat){fat01xCat=c;in01x=true;continue;}
-          if(in01x){if(lv<=2)in01x=false;else{fat01xChildren.push(c);continue;}}
-          if(in03&&lv===2){in03x=true;continue;}
-          if(in03x){if(lv<=2)in03x=false;else if(!cmvLeaf)cmvLeaf=c;continue;}
-        }
-        if(!cmvLeaf){for(const c of cats){if(/^03\.\d/.test(c)&&catLevel(c)===2){cmvLeaf=c;break;}}}
-        return{fat01xCat,fat01xChildren,cmvLeaf};
-      }
-      const pdfExt=pdfFonte==='externa'?pdfExternaCats():{fat01xCat:null,fat01xChildren:[],cmvLeaf:null};
-
-      function pdfVal(period,cat){
-        const raw=(byPeriod[period]||{})[cat]||0;
-        if(pdfFonte!=='externa') return raw;
-        const ext=S.fatCMV[period]||{};
-        if(ext.cmv&&cat===pdfExt.cmvLeaf) return -Math.abs(ext.cmv);
-        return raw;
-      }
-      function pdfAgg(period,cat){
-        const lv=catLevel(cat);
-        if(lv>=3) return pdfVal(period,cat);
-        const idx=cats.indexOf(cat); if(idx<0) return pdfVal(period,cat);
-        if(pdfFonte==='externa'&&cat===pdfExt.fat01xCat){
-          const ext=S.fatCMV[period]||{}; return ext.fat||pdfChildSum(period,cat,lv);
-        }
-        if(lv===0){ let s=0; for(let i=0;i<idx;i++){if(catLevel(cats[i])===1)s+=pdfAgg(period,cats[i]);} return s; }
-        return pdfChildSum(period,cat,lv);
-      }
-      function pdfChildSum(period,cat,lv){
-        const idx=cats.indexOf(cat); if(idx<0) return pdfVal(period,cat);
-        const cl=lv+1; let t=0,f=false;
-        for(let i=idx+1;i<cats.length;i++){const c=cats[i];const cv=catLevel(c);if(cv<=lv)break;if(cv===cl){t+=pdfAgg(period,c);f=true;}}
-        return f?t:pdfVal(period,cat);
-      }
-      function pdfRB(period){
-        if(pdfFonte!=='externa') return gv(byPeriod[period]||{},'01T');
-        const c01T=cats.find(c=>/01T/.test(c)); return c01T?pdfAgg(period,c01T):gv(byPeriod[period]||{},'01T');
-      }
 
       // Paint rows - skip hidden children, inject Faturamento Preenchido
       const hiddenInPdf=new Set(pdfExt.fat01xChildren);
@@ -1939,7 +1936,7 @@ async function exportPDF(type, cfg){
             if(showAVpdf) cells.push((mv/rbM*100).toFixed(1)+'%');
             if(showAHpdf&&mi>0){
               const prev=pdfAgg(mCols[mi-1],cat);
-              if(prev!==0){const ah=+((Math.abs(mv)-Math.abs(prev))/Math.abs(prev)*100).toFixed(1);cells.push((ah>=0?'+':'')+ah+'%');}
+              if(prev!==0){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);cells.push((ah>=0?'+':'')+ah+'%');}
               else cells.push('—');
             }
           });
@@ -1966,7 +1963,7 @@ async function exportPDF(type, cfg){
               synCells.push(fmtPdf(mv)); if(showAVpdf) synCells.push((mv/rbM*100).toFixed(1)+'%');
               if(showAHpdf&&mi>0){
                 const prev=(S.fatCMV[mCols[mi-1]]||{}).fat||0;
-                if(prev){const ah=+((Math.abs(mv)-Math.abs(prev))/Math.abs(prev)*100).toFixed(1);synCells.push((ah>=0?'+':'')+ah+'%');}
+                if(prev){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);synCells.push((ah>=0?'+':'')+ah+'%');}
                 else synCells.push('—');
               }
             });
