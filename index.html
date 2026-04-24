@@ -174,6 +174,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .pos{color:var(--gn)}.neg{color:var(--rd)}
 .avc{color:var(--pu);font-size:11px;background:rgba(109,40,217,.04)}
 .ahc{font-size:11px;font-weight:600}.ahp{color:var(--gn)}.ahn{color:var(--rd)}
+.editable-cell{cursor:pointer}.editable-cell:hover{background:rgba(184,146,42,.08)!important;box-shadow:inset 0 0 0 1px rgba(184,146,42,.35)}.edit-cell-input{width:110px;padding:5px 8px;border:1.5px solid var(--gold);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;outline:none;background:#fff}
+#tab-fat,#page-fat,#ger-fonte-btns,#ger-fonte-btns+span{display:none!important}.filter-card div:has(>#ger-fonte-btns){display:none!important}
 
 /* ── COLLAPSE BTN ── */
 .tg{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:rgba(30,79,170,.13);color:var(--ac);cursor:pointer;font-size:10px;flex-shrink:0;margin-right:6px;transition:all .15s;user-select:none;border:none;vertical-align:middle;font-family:inherit}
@@ -241,10 +243,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
   <div class="tab" id="tab-ger" onclick="switchTab('ger')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
     DRE Gerencial
-  </div>
-  <div class="tab" id="tab-fat" onclick="switchTab('fat')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8v1m0 10v1M7 10H4m13 0h-3"/></svg>
-    Faturamento & CMV
   </div>
 </div>
 
@@ -377,17 +375,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
       <!-- AV/AH + Fonte (só para GER) -->
       <div id="pdf-ger-opts" style="display:none">
         <div class="fg">
-          <label>Fonte de informações</label>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;cursor:pointer">
-              <input type="radio" name="pdf-fonte" id="pdf-fonte-int" value="interna" style="accent-color:var(--ac)" checked> 🏠 Interna (base importada)
-            </label>
-            <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;cursor:pointer">
-              <input type="radio" name="pdf-fonte" id="pdf-fonte-ext" value="externa" style="accent-color:var(--gold)"> 🌐 Externa (Faturamento & CMV manual)
-            </label>
-          </div>
-        </div>
-        <div class="fg">
           <label>Análises a incluir</label>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;cursor:pointer">
@@ -450,8 +437,10 @@ const S = {
   data:{ cc:null, ccMeta:null, ger:null, gerMeta:null },
   parsed:{ cc:null, ger:null },
   rateio:{ origens:[], receptores:[] },
-  fonte:'interna',  // 'interna' or 'externa' — source for GER Faturamento/CMV
-  fatCMV:{},        // {period: {fat: number, cmv: number}} — manual entries
+  fonte:'interna',  // fonte fixa interna (aba externa removida)
+  fatCMV:{},        // mantido apenas para compatibilidade interna
+  gerOverrides:{},  // edições manuais da DRE: {period: {cat: value}}
+  cmvCats:null,     // categorias selecionadas para o numerador do % CMV
   ccView:{ selP:null, selCC:'total', ccNames:[] },
   gerView:{ selP:null, isAcum:true, showAV:false, showAH:false },
 };
@@ -466,7 +455,7 @@ function switchTab(name){
   el('tab-'+name).classList.add('active');
   killCharts();
   if(name==='cc' && S.data.cc){ const p=parseRows(S.data.cc); if(p){S.parsed.cc=p; renderCC(el('cc-con'),p,S.data.ccMeta);} }
-  if(name==='ger'&& S.data.ger){ const p=parseGer(S.data.ger); if(p){S.parsed.ger=p; renderGer(el('ger-con'),p,S.data.gerMeta,S.fonte);} }
+  if(name==='ger'&& S.data.ger){ const p=parseGer(S.data.ger); if(p){S.parsed.ger=p; renderGer(el('ger-con'),p,S.data.gerMeta,'interna');} }
   if(name==='fat'){ renderFat(); }
 }
 
@@ -871,6 +860,12 @@ function renderGer(con, parsed, meta, fonte){
 
   function gv(map,kw){ const k=Object.keys(map||{}).find(x=>x.toLowerCase().includes(kw.toLowerCase())); return k!=null?map[k]:0; }
   function pvRaw(period,cat){ return(byPeriod[period]||{})[cat]||0; }
+  function hasGerOverride(period,cat){ return !!(S.gerOverrides && S.gerOverrides[period] && Object.prototype.hasOwnProperty.call(S.gerOverrides[period],cat)); }
+  function getGerOverride(period,cat){ return S.gerOverrides[period][cat]; }
+  function setGerOverride(period,cat,val){ if(!S.gerOverrides[period]) S.gerOverrides[period]={}; S.gerOverrides[period][cat]=val; }
+  function parseMoneyInput(v){ const str=String(v||'').trim().replace(/R$|s/g,''); if(!str)return NaN; const normalized=str.includes(',')?str.replace(/./g,'').replace(',','.'):str; return parseFloat(normalized); }
+  function moneyForInput(v){ return Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function encCat(cat){ return encodeURIComponent(cat).replace(/'/g,'%27'); }
   // Build a map of which leaf cat to inject FAT and CMV externally.
   // FAT → first leaf (deepest child) under first 01.x sub-category
   // CMV → first leaf under first 03.x sub-category
@@ -944,6 +939,7 @@ function renderGer(con, parsed, meta, fonte){
   // Level-1 rows: sum of their level-2 children.
   // Level-2+ rows: sum of their level-3+ children (or leaf value).
   function pvAgg(period, cat){
+    if(hasGerOverride(period,cat)) return getGerOverride(period,cat);
     const lv=catLevel(cat);
 
     // Leaf nodes: return pv (handles CMV override)
@@ -988,11 +984,12 @@ function renderGer(con, parsed, meta, fonte){
   // whether fonte=interna or externa, since pvAgg falls back to pvRaw for leaves)
   function pRB(period){
     const cat01T=cats.find(c=>/01T/.test(c));
-    // In interna mode: 01T is stored directly in byPeriod, use that for performance
-    if(!fonte||fonte!=='externa') return gv(byPeriod[period]||{},'01T');
-    // In externa mode: recalculate from leaves (pvAgg handles external fat injection)
     return cat01T?pvAgg(period,cat01T):gv(byPeriod[period]||{},'01T');
   }
+
+  const defaultCMVCats=cats.filter(c=>/^03\.\d/.test(c)&&catLevel(c)===2);
+  if(!S.cmvCats || !S.cmvCats.length) S.cmvCats=[...defaultCMVCats];
+  function selectedCMVCats(){ return (S.cmvCats&&S.cmvCats.length)?S.cmvCats:defaultCMVCats; }
 
   let isAcum=false;
   let selP=new Set(periods), showAV=false, showAH=false, lastI=-1;
@@ -1027,7 +1024,7 @@ function renderGer(con, parsed, meta, fonte){
 
     // CMV: sum of level-2 sub-rows inside 03 group (costs)
     let cmvSum=0;
-    cats.forEach(c=>{ if(/^03\.\d/.test(c)&&catLevel(c)===2) cmvSum+=sumCat(c); });
+    selectedCMVCats().forEach(c=>{ cmvSum+=sumCat(c); });
 
     // Impostos: sum of 02.1 rows
     let impSum=0;
@@ -1046,7 +1043,7 @@ function renderGer(con, parsed, meta, fonte){
     const mcArr=msArr.map(p=>{ const rb=pRB(p)||1; return+(pvAgg(p,c03T)/rb*100).toFixed(2); });
     const cmvArr=msArr.map(p=>{
       const rb=pRB(p)||1; let cv=0;
-      cats.forEach(c=>{ if(/^03\.\d/.test(c)&&catLevel(c)===2) cv+=pvAgg(p,c); });
+      selectedCMVCats().forEach(c=>{ cv+=pvAgg(p,c); });
       return+(Math.abs(cv)/rb*100).toFixed(2);
     });
     const recArr=msArr.map(p=>pRB(p));
@@ -1144,18 +1141,18 @@ function renderGer(con, parsed, meta, fonte){
 
       if(isAcum){
         const tv=selTotals[cat]||0;
-        h+=`<td>${fmt(tv)}</td>`;
+        h+=`<td class="editable-cell" title="Dê dois cliques para editar" ondblclick="W._gEdit(this,'${ms.length===1?ms[0]:''}','${encCat(cat)}',${tv})">${fmt(tv)}</td>`;
         if(showAV)h+=`<td class="avc">${rb0?(tv/rb0*100).toFixed(1):0}%</td>`;
       } else {
         let rowT=0;
         const base0=pvAgg(firstP,cat);
         ms.forEach((m,mi)=>{
           const mv=pvAgg(m,cat); rowT+=mv; const rbM=pRB(m)||1;
-          h+=`<td>${fmt(mv)}</td>`;
+          h+=`<td class="editable-cell" title="Dê dois cliques para editar" ondblclick="W._gEdit(this,'${m}','${encCat(cat)}',${mv})">${fmt(mv)}</td>`;
           if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
           if(showAH&&mi>0){
             const prevVal=pvAgg(ms[mi-1],cat);
-            if(prevVal!==0){const ah=+((mv-prevVal)/Math.abs(prevVal)*100).toFixed(1); h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+            if(prevVal!==0){const ah=+((Math.abs(mv)-Math.abs(prevVal))/Math.abs(prevVal)*100).toFixed(1); h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
             else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
           }
         });
@@ -1173,17 +1170,17 @@ function renderGer(con, parsed, meta, fonte){
           h+=`<tr class="rb2"><td><span style="display:inline-block;width:44px"></span><em style="color:var(--gold);font-style:normal;font-weight:600">✦ ${synLabel}</em></td>`;
           if(isAcum){
             const tv=ms.reduce((s,m)=>s+((S.fatCMV[m]||{}).fat||0),0);
-            h+=`<td>${fmt(tv)}</td>`;
+            h+=`<td class="editable-cell" title="Dê dois cliques para editar" ondblclick="W._gEdit(this,'${ms.length===1?ms[0]:''}','${encCat(cat)}',${tv})">${fmt(tv)}</td>`;
             if(showAV)h+=`<td class="avc">${rb0?(tv/rb0*100).toFixed(1):0}%</td>`;
           } else {
             let rowT=0;
             ms.forEach((m,mi)=>{
               const mv=(S.fatCMV[m]||{}).fat||0; rowT+=mv; const rbM=pRB(m)||1;
-              h+=`<td>${fmt(mv)}</td>`;
+              h+=`<td class="editable-cell" title="Dê dois cliques para editar" ondblclick="W._gEdit(this,'${m}','${encCat(cat)}',${mv})">${fmt(mv)}</td>`;
               if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
               if(showAH&&mi>0){
                 const prev=(S.fatCMV[ms[mi-1]]||{}).fat||0;
-                if(prev){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+                if(prev){const ah=+((Math.abs(mv)-Math.abs(prev))/Math.abs(prev)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
                 else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
               }
             });
@@ -1205,6 +1202,10 @@ function renderGer(con, parsed, meta, fonte){
 
   con.innerHTML=`${fb}
     <div id="ger-active-filters" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 14px;background:var(--sf);border:1px solid var(--bd2);border-radius:var(--rs);box-shadow:var(--sh)"></div>
+    <div class="filter-card">
+      <div class="filter-row"><span class="filter-label">Categorias do numerador do % CMV</span><span class="filter-hint">Selecione quais linhas de custos entram no cálculo do indicador.</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px" id="ger-cmv-chips">${defaultCMVCats.map(c=>`<span class="chip${selectedCMVCats().includes(c)?' active':''}" data-cmv-cat="${encCat(c)}" onclick="W._gCMV('${encCat(c)}',this)">${c}</span>`).join('')}</div>
+    </div>
     <div class="kpi-grid" id="ger-kpi-grid">
       <div class="kpi" id="kpi-rb"><div class="kpi-label">Receita Bruta</div><div class="kpi-value bl" id="kv-rb">—</div><div class="kpi-sub" id="ks-rb">Período selecionado</div></div>
       <div class="kpi" id="kpi-rl"><div class="kpi-label">Receita Líquida</div><div class="kpi-value" id="kv-rl">—</div><div class="kpi-sub" id="ks-rl">—</div></div>
@@ -1234,7 +1235,7 @@ function renderGer(con, parsed, meta, fonte){
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd2)">
-        <span class="sl" style="font-size:10.5px">Fonte de dados:</span>
+        <span class="sl" style="font-size:10.5px;display:none">Fonte de dados:</span>
         <div id="ger-fonte-btns" style="display:flex;border-radius:var(--rs);overflow:hidden;border:1.5px solid var(--bd)">
           <button id="btn-fonte-int" onclick="W._gSetFonte('interna')"
             style="padding:5px 13px;font-size:12px;font-weight:600;font-family:inherit;border:none;cursor:pointer;transition:all .15s;background:${fonte==='interna'?'var(--ac)':'transparent'};color:${fonte==='interna'?'#fff':'var(--tx2)'}">
@@ -1483,6 +1484,38 @@ function renderGer(con, parsed, meta, fonte){
   W._gAV=()=>{ showAV=!showAV; el('btn-av').classList.toggle('on',showAV); buildT(); };
   W._gAH=()=>{ showAH=!showAH; el('btn-ah').classList.toggle('on',showAH); buildT(); };
   W._gTog=(cat,idx)=>{ if(collapsed.has(cat))collapsed.delete(cat); else collapsed.add(cat); buildT(); };
+
+  W._gCMV=(encodedCat,elChip)=>{
+    const cat=decodeURIComponent(encodedCat);
+    const cur=new Set(selectedCMVCats());
+    if(cur.has(cat) && cur.size>1) cur.delete(cat); else cur.add(cat);
+    S.cmvCats=[...cur];
+    document.querySelectorAll('#ger-cmv-chips .chip').forEach(ch=>ch.classList.toggle('active',cur.has(decodeURIComponent(ch.dataset.cmvCat))));
+    buildT();
+  };
+
+  W._gEdit=(td,period,encodedCat,current)=>{
+    if(!period){ toast('Para editar o acumulado, selecione apenas um mês ou edite mês a mês.','error'); return; }
+    const cat=decodeURIComponent(encodedCat);
+    if(td.querySelector('input')) return;
+    const oldVal=Number(current||0);
+    td.innerHTML=`<input class="edit-cell-input" value="${moneyForInput(oldVal)}" />`;
+    const inp=td.querySelector('input');
+    inp.focus(); inp.select();
+    const finish=(save)=>{
+      if(save){
+        const val=parseMoneyInput(inp.value);
+        if(Number.isNaN(val)){ toast('Valor inválido.','error'); buildT(); return; }
+        setGerOverride(period,cat,val);
+        if(!byPeriod[period]) byPeriod[period]={};
+        byPeriod[period][cat]=val;
+        buildT();
+        toast('Valor atualizado na DRE.','success');
+      } else buildT();
+    };
+    inp.addEventListener('keydown',ev=>{ if(ev.key==='Enter') finish(true); if(ev.key==='Escape') finish(false); });
+    inp.addEventListener('blur',()=>finish(true),{once:true});
+  };
 
   // Fonte toggle: changes S.fonte then rebuilds via buildT (which re-reads S.fonte via closure)
   W._gSetFonte=(f)=>{
@@ -1906,7 +1939,7 @@ async function exportPDF(type, cfg){
             if(showAVpdf) cells.push((mv/rbM*100).toFixed(1)+'%');
             if(showAHpdf&&mi>0){
               const prev=pdfAgg(mCols[mi-1],cat);
-              if(prev!==0){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);cells.push((ah>=0?'+':'')+ah+'%');}
+              if(prev!==0){const ah=+((Math.abs(mv)-Math.abs(prev))/Math.abs(prev)*100).toFixed(1);cells.push((ah>=0?'+':'')+ah+'%');}
               else cells.push('—');
             }
           });
@@ -1933,7 +1966,7 @@ async function exportPDF(type, cfg){
               synCells.push(fmtPdf(mv)); if(showAVpdf) synCells.push((mv/rbM*100).toFixed(1)+'%');
               if(showAHpdf&&mi>0){
                 const prev=(S.fatCMV[mCols[mi-1]]||{}).fat||0;
-                if(prev){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);synCells.push((ah>=0?'+':'')+ah+'%');}
+                if(prev){const ah=+((Math.abs(mv)-Math.abs(prev))/Math.abs(prev)*100).toFixed(1);synCells.push((ah>=0?'+':'')+ah+'%');}
                 else synCells.push('—');
               }
             });
