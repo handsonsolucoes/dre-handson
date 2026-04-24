@@ -223,6 +223,22 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
 .bg-gn{background:var(--gnb);color:var(--gn)}.bg-rd{background:var(--rdb);color:var(--rd)}.bg-bl{background:var(--acb);color:var(--ac)}
 #pdf-region{position:absolute;left:-9999px;top:0;width:1200px;background:#fff;padding:24px;font-family:'Inter',sans-serif}
+
+/* CMV dropdown discreto (estilo filtro Power BI) */
+.cmv-dd{position:relative;display:inline-block;min-width:230px;max-width:360px}
+.cmv-dd-btn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--sf);color:var(--tx2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .15s}
+.cmv-dd-btn:hover{border-color:var(--ac2);color:var(--ac2)}
+.cmv-dd-panel{display:none;position:absolute;top:calc(100% + 5px);left:0;z-index:80;width:340px;max-width:calc(100vw - 48px);background:var(--sf);border:1.5px solid var(--bd);border-radius:var(--rs);box-shadow:0 12px 30px rgba(0,0,0,.16);padding:8px}
+.cmv-dd.open .cmv-dd-panel{display:block}
+.cmv-dd-search{width:100%;padding:7px 9px;border:1px solid var(--bd);border-radius:6px;font-size:12px;font-family:inherit;margin-bottom:7px;outline:none}
+.cmv-dd-options{max-height:220px;overflow:auto;border-top:1px solid var(--bd2);padding-top:5px}
+.cmv-dd-item{display:flex;align-items:center;gap:7px;padding:6px 5px;border-radius:6px;font-size:12px;color:var(--tx2);cursor:pointer;line-height:1.25}
+.cmv-dd-item:hover{background:var(--acb);color:var(--ac)}
+.cmv-dd-item input{width:14px;height:14px;accent-color:var(--ac);cursor:pointer;flex-shrink:0}
+.cmv-dd-actions{display:flex;justify-content:space-between;gap:6px;margin-top:7px;padding-top:7px;border-top:1px solid var(--bd2)}
+.cmv-dd-mini{font-size:11px;padding:5px 8px;border-radius:6px;border:1px solid var(--bd);background:var(--sf);color:var(--tx2);font-family:inherit;cursor:pointer}
+.cmv-dd-mini:hover{border-color:var(--ac2);color:var(--ac2)}
+
 </style>
 </head>
 <body>
@@ -444,6 +460,10 @@ const S = {
   ccView:{ selP:null, selCC:'total', ccNames:[] },
   gerView:{ selP:null, isAcum:true, showAV:false, showAH:false },
 };
+
+
+// Fecha dropdowns discretos ao clicar fora
+window.addEventListener('click',()=>{ const d=document.getElementById('cmv-dd'); if(d)d.classList.remove('open'); });
 
 document.getElementById('top-date').textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
 
@@ -991,7 +1011,7 @@ function renderGer(con, parsed, meta, fonte){
   if(!S.cmvCats || !S.cmvCats.length) S.cmvCats=[...defaultCMVCats];
   function selectedCMVCats(){ return (S.cmvCats&&S.cmvCats.length)?S.cmvCats:defaultCMVCats; }
 
-  let isAcum=false;
+  let isAcum=true;
   let selP=new Set(periods), showAV=false, showAH=false, lastI=-1;
 
   // Compute KPIs and chart arrays from a given set of periods
@@ -1051,7 +1071,7 @@ function renderGer(con, parsed, meta, fonte){
     const avg=arr=>arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:0;
     return{allRB,allRL,allLB,allOP,allLQ,allFinal,pCMV,pImp,mOp,mLiq,mBr,n,
            lbs,moArr,mlArr,mcArr,cmvArr,recArr,opArr,
-           moMean:avg(moArr),mlMean:avg(mlArr)};
+           moMean:mOp,mlMean:mLiq};
   }
 
   let chartsInitialized=false;
@@ -1152,7 +1172,7 @@ function renderGer(con, parsed, meta, fonte){
           if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
           if(showAH&&mi>0){
             const prevVal=pvAgg(ms[mi-1],cat);
-            if(prevVal!==0){const ah=+((mv-prevVal)/Math.abs(prevVal)*100).toFixed(1); h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+            if(prevVal!==0){const ah=+((Math.abs(mv)-Math.abs(prevVal))/Math.abs(prevVal)*100).toFixed(1); h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
             else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
           }
         });
@@ -1180,7 +1200,7 @@ function renderGer(con, parsed, meta, fonte){
               if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
               if(showAH&&mi>0){
                 const prev=(S.fatCMV[ms[mi-1]]||{}).fat||0;
-                if(prev){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+                if(prev){const ah=+((Math.abs(mv)-Math.abs(prev))/Math.abs(prev)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
                 else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
               }
             });
@@ -1202,13 +1222,24 @@ function renderGer(con, parsed, meta, fonte){
 
   con.innerHTML=`${fb}
     <div id="ger-active-filters" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 14px;background:var(--sf);border:1px solid var(--bd2);border-radius:var(--rs);box-shadow:var(--sh)"></div>
-    <div class="filter-card">
-      <div class="filter-row"><span class="filter-label">Categorias do numerador do % CMV</span><span class="filter-hint">Use CTRL para selecionar mais de uma categoria.</span></div>
-      <select id="ger-cmv-select" multiple size="6" onchange="W._gCMVSelect(this)"
-        style="width:100%;min-height:128px;padding:8px 10px;border:1.5px solid var(--bd);border-radius:var(--rs);font-size:12.5px;font-family:inherit;color:var(--tx);background:var(--sf);outline:none">
-        ${defaultCMVCats.map(c=>`<option value="${encCat(c)}" ${selectedCMVCats().includes(c)?'selected':''}>${c}</option>`).join('')}
-      </select>
-      <div style="font-size:11px;color:var(--tx3);margin-top:6px">O % CMV soma as categorias selecionadas no período filtrado e divide pela Receita Bruta do mesmo período.</div>
+    <div class="filter-card" style="padding:10px 14px">
+      <div class="filter-row" style="margin-bottom:0;justify-content:flex-start;gap:12px">
+        <span class="filter-label">Categorias do % CMV</span>
+        <div class="cmv-dd" id="cmv-dd">
+          <button type="button" class="cmv-dd-btn" onclick="W._gCMVToggle(event)"><span id="cmv-dd-label">Selecionar categorias</span><span>▾</span></button>
+          <div class="cmv-dd-panel" onclick="event.stopPropagation()">
+            <input class="cmv-dd-search" id="cmv-dd-search" placeholder="Pesquisar categoria..." oninput="W._gCMVFilter(this.value)">
+            <div class="cmv-dd-options" id="cmv-dd-options">
+              ${defaultCMVCats.map(c=>`<label class="cmv-dd-item" data-cmv-label="${c.toLowerCase().replace(/"/g,'&quot;')}"><input type="checkbox" value="${encCat(c)}" ${selectedCMVCats().includes(c)?'checked':''} onchange="W._gCMVCheck()"><span>${c}</span></label>`).join('')}
+            </div>
+            <div class="cmv-dd-actions">
+              <button type="button" class="cmv-dd-mini" onclick="W._gCMVAll(true)">Selecionar tudo</button>
+              <button type="button" class="cmv-dd-mini" onclick="W._gCMVAll(false)">Limpar</button>
+            </div>
+          </div>
+        </div>
+        <span class="filter-hint">Soma das categorias marcadas ÷ Receita Bruta.</span>
+      </div>
     </div>
     <div class="kpi-grid" id="ger-kpi-grid">
       <div class="kpi" id="kpi-rb"><div class="kpi-label">Receita Bruta</div><div class="kpi-value bl" id="kv-rb">—</div><div class="kpi-sub" id="ks-rb">Período selecionado</div></div>
@@ -1489,11 +1520,29 @@ function renderGer(con, parsed, meta, fonte){
   W._gAH=()=>{ showAH=!showAH; el('btn-ah').classList.toggle('on',showAH); buildT(); };
   W._gTog=(cat,idx)=>{ if(collapsed.has(cat))collapsed.delete(cat); else collapsed.add(cat); buildT(); };
 
-  W._gCMVSelect=(sel)=>{
-    const chosen=[...sel.selectedOptions].map(o=>decodeURIComponent(o.value));
+  function updateCMVLabel(){
+    const lab=el('cmv-dd-label'); if(!lab) return;
+    const n=selectedCMVCats().length;
+    lab.textContent=n===1?'1 categoria selecionada':`${n} categorias selecionadas`;
+  }
+  W._gCMVToggle=(event)=>{ event.stopPropagation(); const d=el('cmv-dd'); if(d)d.classList.toggle('open'); };
+  W._gCMVFilter=(term)=>{
+    const t=String(term||'').toLowerCase();
+    document.querySelectorAll('#cmv-dd-options .cmv-dd-item').forEach(item=>{
+      item.style.display=(item.dataset.cmvLabel||'').includes(t)?'flex':'none';
+    });
+  };
+  W._gCMVCheck=()=>{
+    const chosen=[...document.querySelectorAll('#cmv-dd-options input[type="checkbox"]:checked')].map(o=>decodeURIComponent(o.value));
     S.cmvCats=chosen.length?chosen:[...defaultCMVCats];
+    updateCMVLabel();
     buildT();
   };
+  W._gCMVAll=(mark)=>{
+    document.querySelectorAll('#cmv-dd-options input[type="checkbox"]').forEach(i=>i.checked=!!mark);
+    W._gCMVCheck();
+  };
+  setTimeout(updateCMVLabel,0);
 
   W._gEdit=(td,period,encodedCat,current)=>{
     if(!period){ toast('Para editar o acumulado, selecione apenas um mês ou edite mês a mês.','error'); return; }
