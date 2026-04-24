@@ -1007,9 +1007,13 @@ function renderGer(con, parsed, meta, fonte){
     return cat01T?pvAgg(period,cat01T):gv(byPeriod[period]||{},'01T');
   }
 
-  const defaultCMVCats=cats.filter(c=>/^03\.\d/.test(c)&&catLevel(c)===2);
-  if(!S.cmvCats || !S.cmvCats.length) S.cmvCats=[...defaultCMVCats];
-  function selectedCMVCats(){ return (S.cmvCats&&S.cmvCats.length)?S.cmvCats:defaultCMVCats; }
+  const cmvOptions=cats.filter(c=>{
+    const lv=catLevel(c);
+    return lv>=2 && !/^\d{2}T\b/.test(c) && !/^\d{2}\s/.test(c) && String(c||" ").trim();
+  });
+  const defaultCMVCats=cmvOptions.filter(c=>/^03\.\d/.test(c));
+  if(!S.cmvCats || !S.cmvCats.length) S.cmvCats=[...(defaultCMVCats.length?defaultCMVCats:[])];
+  function selectedCMVCats(){ return (S.cmvCats&&S.cmvCats.length)?S.cmvCats:[]; }
 
   let isAcum=true;
   let selP=new Set(periods), showAV=false, showAH=false, lastI=-1;
@@ -1026,6 +1030,7 @@ function renderGer(con, parsed, meta, fonte){
     const c04T=cats.find(c=>/04T/.test(c))||'';
     const c06T=cats.find(c=>/06T/.test(c))||'';
     const c07T=cats.find(c=>/07T/.test(c))||'';
+    const cFinal=cats.find(c=>/lucro\s*\/\s*preju[ií]zo\s*final/i.test(c))||cats.find(c=>/resultado\s*final/i.test(c))||"";
 
     // Locate level-1 group cats for individual line analysis
     const c02grp=cats.find(c=>/^02 /.test(c))||''; // Deduções
@@ -1038,9 +1043,9 @@ function renderGer(con, parsed, meta, fonte){
     const allLB=sumCat(c03T); // Lucro Bruto = RL + custos operacionais (negative)
     const allOP=sumCat(c04T); // Lucro Operacional = LB + despesas operacionais (negative)
     // Lucro Líquido: use last T-row available (07T, 06T, or 04T as fallback)
-    const lastTrow=c07T||c06T||c04T||'';
+    const lastTrow=cFinal||c07T||c06T||c04T||'';
     const allLQ=sumCat(lastTrow); // Final result = last T-row in the DRE
-    const allFinal=c07T?sumCat(c07T):(c06T?sumCat(c06T):sumCat(c04T));
+    const allFinal=sumCat(lastTrow);
 
     // CMV: sum of level-2 sub-rows inside 03 group (costs)
     let cmvSum=0;
@@ -1089,14 +1094,11 @@ function renderGer(con, parsed, meta, fonte){
     if(fb){
       const msSorted=[...selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
       const isAllP=selP.size===periods.length;
-      const fonteLabel=fonte==='externa'
-        ?'<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--goldb);color:var(--gold);border-radius:20px;font-size:11px;font-weight:700;border:1px solid rgba(184,146,42,.3)">🌐 Dados Externos</span>'
-        :'<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--acb);color:var(--ac);border-radius:20px;font-size:11px;font-weight:700;border:1px solid rgba(30,79,170,.2)">🏠 Dados Internos</span>';
       const periodLabel=isAllP
         ?'<span style="padding:4px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:20px;font-size:11px;font-weight:600;color:var(--tx2)">Acumulado (todos os períodos)</span>'
         :msSorted.map(p=>`<span style="padding:4px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:20px;font-size:11px;font-weight:600;color:var(--tx2)">${p}</span>`).join('');
       const acumBadge=isAcum?'<span style="padding:4px 10px;background:#e8f0fb;border:1px solid rgba(30,79,170,.2);border-radius:20px;font-size:11px;font-weight:600;color:var(--ac)">Visão Acumulada</span>':'';
-      fb.innerHTML=`<span style="font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-right:4px">Filtros:</span>${fonteLabel} ${periodLabel} ${acumBadge}`;
+      fb.innerHTML=`<span style="font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-right:4px">Filtros:</span>${periodLabel} ${acumBadge}`;
     }
     if(chartsInitialized){
       updateCharts(K);
@@ -1172,7 +1174,7 @@ function renderGer(con, parsed, meta, fonte){
           if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
           if(showAH&&mi>0){
             const prevVal=pvAgg(ms[mi-1],cat);
-            if(prevVal!==0){const ah=+((Math.abs(mv)-Math.abs(prevVal))/Math.abs(prevVal)*100).toFixed(1); h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+            if(prevVal!==0){const ah=+((mv-prevVal)/Math.abs(prevVal)*100).toFixed(1); h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
             else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
           }
         });
@@ -1200,7 +1202,7 @@ function renderGer(con, parsed, meta, fonte){
               if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
               if(showAH&&mi>0){
                 const prev=(S.fatCMV[ms[mi-1]]||{}).fat||0;
-                if(prev){const ah=+((Math.abs(mv)-Math.abs(prev))/Math.abs(prev)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+                if(prev){const ah=+((mv-prev)/Math.abs(prev)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
                 else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
               }
             });
@@ -1230,7 +1232,7 @@ function renderGer(con, parsed, meta, fonte){
           <div class="cmv-dd-panel" onclick="event.stopPropagation()">
             <input class="cmv-dd-search" id="cmv-dd-search" placeholder="Pesquisar categoria..." oninput="W._gCMVFilter(this.value)">
             <div class="cmv-dd-options" id="cmv-dd-options">
-              ${defaultCMVCats.map(c=>`<label class="cmv-dd-item" data-cmv-label="${c.toLowerCase().replace(/"/g,'&quot;')}"><input type="checkbox" value="${encCat(c)}" ${selectedCMVCats().includes(c)?'checked':''} onchange="W._gCMVCheck()"><span>${c}</span></label>`).join('')}
+              ${cmvOptions.map(c=>`<label class="cmv-dd-item" data-cmv-label="${c.toLowerCase().replace(/"/g,'&quot;')}"><input type="checkbox" value="${encCat(c)}" ${selectedCMVCats().includes(c)?'checked':''} onchange="W._gCMVCheck()"><span>${c}</span></label>`).join('')}
             </div>
             <div class="cmv-dd-actions">
               <button type="button" class="cmv-dd-mini" onclick="W._gCMVAll(true)">Selecionar tudo</button>
@@ -1268,20 +1270,6 @@ function renderGer(con, parsed, meta, fonte){
           <button class="btn-tog" id="btn-av" onclick="W._gAV()">A. Vertical %</button>
           <button class="btn-tog" id="btn-ah" onclick="W._gAH()">A. Horizontal %</button>
         </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd2)">
-        <span class="sl" style="font-size:10.5px;display:none">Fonte de dados:</span>
-        <div id="ger-fonte-btns" style="display:flex;border-radius:var(--rs);overflow:hidden;border:1.5px solid var(--bd)">
-          <button id="btn-fonte-int" onclick="W._gSetFonte('interna')"
-            style="padding:5px 13px;font-size:12px;font-weight:600;font-family:inherit;border:none;cursor:pointer;transition:all .15s;background:${fonte==='interna'?'var(--ac)':'transparent'};color:${fonte==='interna'?'#fff':'var(--tx2)'}">
-            🏠 Interna
-          </button>
-          <button id="btn-fonte-ext" onclick="W._gSetFonte('externa')"
-            style="padding:5px 13px;font-size:12px;font-weight:600;font-family:inherit;border:none;cursor:pointer;transition:all .15s;background:${fonte==='externa'?'var(--gold)':'transparent'};color:${fonte==='externa'?'#fff':'var(--tx2)'}">
-            🌐 Externa
-          </button>
-        </div>
-        ${fonte==='externa'?'<span style="font-size:11px;color:var(--gold);font-weight:600">⚡ Usando Faturamento & CMV preenchidos</span>':''}
       </div>
       <div class="pills" id="ger-pills">${periods.map((p,i)=>`<span class="pill active" data-i="${i}" data-p="${p}" onclick="W._gP(event,'${p}',${i})">${p}</span>`).join('')}</div>
     </div>
@@ -1534,7 +1522,7 @@ function renderGer(con, parsed, meta, fonte){
   };
   W._gCMVCheck=()=>{
     const chosen=[...document.querySelectorAll('#cmv-dd-options input[type="checkbox"]:checked')].map(o=>decodeURIComponent(o.value));
-    S.cmvCats=chosen.length?chosen:[...defaultCMVCats];
+    S.cmvCats=chosen;
     updateCMVLabel();
     buildT();
   };
@@ -1721,7 +1709,7 @@ function openPdfFilter(type){
     }
     const showAV=type==='ger'&&el('pdf-opt-av').checked;
     const showAH=type==='ger'&&el('pdf-opt-ah').checked;
-    const pdfFonte=type==='ger'?(document.querySelector('input[name="pdf-fonte"]:checked')?.value||S.gerView.fonte||S.fonte):null;
+    const pdfFonte="interna";
     // selP must always have values: use all periods as fallback for acum
     const finalSelP=selP&&selP.length?selP:(type==='ger'&&S.parsed.ger?S.parsed.ger.periods:[]);
     return{selP:finalSelP, selCC, showAV, showAH, isAcum:pdfAcum, fonte:pdfFonte};
@@ -1867,11 +1855,10 @@ async function exportPDF(type, cfg){
       function sumCatPdf(catKw){ const c=cats.find(x=>(new RegExp(catKw)).test(x))||''; return c?mCols.reduce((s,m)=>s+pdfAgg(m,c),0):0; }
       const allRB=sumCatPdf('01T'); const allRL=sumCatPdf('02T');
       const allLB=sumCatPdf('03T'); const allOP=sumCatPdf('04T');
-      // Last T-row = final profit
-      const lastTpdf=cats.filter(c=>/\dT /.test(c)).pop()||'';
-      const allLQ=lastTpdf?mCols.reduce((s,m)=>s+pdfAgg(m,lastTpdf),0):sumCatPdf('06T');
-      const pdfDefaultCMVCats=cats.filter(c=>/^03\.\d/.test(c)&&catLevel(c)===2);
-      const pdfSelectedCMVCats=(S.cmvCats&&S.cmvCats.length)?S.cmvCats:pdfDefaultCMVCats;
+      // Margem liquida: usar Lucro / Prejuizo Final quando existir
+      const lastTpdf=cats.find(c=>/lucro\s*\/\s*preju[ií]zo\s*final/i.test(c))||cats.find(c=>/resultado\s*final/i.test(c))||cats.filter(c=>/\dT /.test(c)).pop()||"";
+      const allLQ=lastTpdf?mCols.reduce((s,m)=>s+pdfAgg(m,lastTpdf),0):sumCatPdf("06T");
+      const pdfSelectedCMVCats=(S.cmvCats&&S.cmvCats.length)?S.cmvCats:[];
       let cmvSumPdf=0;
       pdfSelectedCMVCats.forEach(c=>{ cmvSumPdf+=mCols.reduce((s,m)=>s+pdfAgg(m,c),0); });
       let impSumPdf=0;
