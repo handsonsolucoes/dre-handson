@@ -175,6 +175,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .avc{color:var(--pu);font-size:11px;background:rgba(109,40,217,.04)}
 .ahc{font-size:11px;font-weight:600}.ahp{color:var(--gn)}.ahn{color:var(--rd)}
 .editable-cell{cursor:pointer}.editable-cell:hover{background:rgba(184,146,42,.08)!important;box-shadow:inset 0 0 0 1px rgba(184,146,42,.35)}.edit-cell-input{width:110px;padding:5px 8px;border:1.5px solid var(--gold);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;outline:none;background:#fff}
+.computed-cell{cursor:default;opacity:.92}
 #tab-fat,#page-fat,#ger-fonte-btns,#ger-fonte-btns+span{display:none!important}.filter-card div:has(>#ger-fonte-btns){display:none!important}
 
 /* ── COLLAPSE BTN ── */
@@ -1081,6 +1082,19 @@ function renderGer(con, parsed, meta, fonte){
 
   let chartsInitialized=false;
 
+  // Returns true if cat at index i has NO children in the visible list
+  // (i.e., it is a true leaf and should be editable)
+  function isLeafCat(cat, idx){
+    const lv=catLevel(cat);
+    if(lv===0) return false; // T-rows (01T, 02T…) are always computed
+    for(let j=idx+1;j<cats.length;j++){
+      const clv=catLevel(cats[j]);
+      if(clv<=lv) break; // left the group
+      if(clv===lv+1) return false; // has at least one direct child
+    }
+    return true;
+  }
+
   function buildT(){
     const ms=[...selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
     S.gerView={selP,isAcum,showAV,showAH,fonte}; // save current filter state
@@ -1161,16 +1175,25 @@ function renderGer(con, parsed, meta, fonte){
       const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._gTog('${cat.replace(/'/g,"\'").replace(/\//g,'\\/')}',${i})">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
       h+=`<tr class="${rc}${hide?' hrow':''}" data-gi="${i}"><td>${tg}${cat}</td>`;
 
+      const isLeaf=isLeafCat(cat,i);
       if(isAcum){
         const tv=selTotals[cat]||0;
-        h+=`<td class="editable-cell" title="Dê dois cliques para editar" ondblclick="W._gEdit(this,'${ms.length===1?ms[0]:''}','${encCat(cat)}',${tv})">${fmt(tv)}</td>`;
+        if(isLeaf){
+          h+=`<td class="editable-cell" title="Dê dois cliques para editar" ondblclick="W._gEdit(this,'${ms.length===1?ms[0]:''}','${encCat(cat)}',${tv})">${fmt(tv)}</td>`;
+        } else {
+          h+=`<td class="computed-cell" title="Valor calculado automaticamente como soma das subcategorias">${fmt(tv)}</td>`;
+        }
         if(showAV)h+=`<td class="avc">${rb0?(tv/rb0*100).toFixed(1):0}%</td>`;
       } else {
         let rowT=0;
         const base0=pvAgg(firstP,cat);
         ms.forEach((m,mi)=>{
           const mv=pvAgg(m,cat); rowT+=mv; const rbM=pRB(m)||1;
-          h+=`<td class="editable-cell" title="Dê dois cliques para editar" ondblclick="W._gEdit(this,'${m}','${encCat(cat)}',${mv})">${fmt(mv)}</td>`;
+          if(isLeaf){
+            h+=`<td class="editable-cell" title="Dê dois cliques para editar" ondblclick="W._gEdit(this,'${m}','${encCat(cat)}',${mv})">${fmt(mv)}</td>`;
+          } else {
+            h+=`<td class="computed-cell" title="Valor calculado automaticamente como soma das subcategorias">${fmt(mv)}</td>`;
+          }
           if(showAV)h+=`<td class="avc">${rbM?(mv/rbM*100).toFixed(1):0}%</td>`;
           if(showAH&&mi>0){
             const prevVal=pvAgg(ms[mi-1],cat);
@@ -1535,6 +1558,9 @@ function renderGer(con, parsed, meta, fonte){
   W._gEdit=(td,period,encodedCat,current)=>{
     if(!period){ toast('Para editar o acumulado, selecione apenas um mês ou edite mês a mês.','error'); return; }
     const cat=decodeURIComponent(encodedCat);
+    // Guard: only allow editing leaf categories
+    const idx=cats.indexOf(cat);
+    if(idx>=0 && !isLeafCat(cat,idx)){ toast('Esta linha é calculada automaticamente como soma das subcategorias.','error'); return; }
     if(td.querySelector('input')) return;
     const oldVal=Number(current||0);
     td.innerHTML=`<input class="edit-cell-input" value="${moneyForInput(oldVal)}" />`;
