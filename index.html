@@ -948,29 +948,15 @@ function renderGer(con, parsed, meta, fonte){
 
   // pvAgg: computes the correct DRE value for any category/period.
   //
-  // DRE rule: T-rows (level 0, e.g. "01T", "02T") are CUMULATIVE SUMS
-  // of all level-1 groups encountered so far in DRE order:
-  //   01T = sum(01.x leaf groups)           ← pure sum of revenues
-  //   02T = 01T + 02(deductions)            ← RB + deductions (negative)
-  //   03T = 02T + 03(costs)                 ← RL + costs (negative)
-  //   04T = 03T + 04(expenses)              ← LB + expenses (negative)
-  //   06T = 04T + 05 + 06                   ← LO + financial +/−
-  //   07T = 06T + 07                        ← LL + invest/loans
-  //
-  // Level-1 rows: sum of their level-2 children.
-  // Level-2+ rows: sum of their level-3+ children (or leaf value).
+  // DRE rule: T-rows (level 0) are CUMULATIVE SUMS of preceding level-1 groups.
+  // All other rows (level 1, 2, 3): sum their direct children if any exist.
+  // True leaves (no children in cats list): return raw/overridden value.
   function pvAgg(period, cat){
     if(hasGerOverride(period,cat)) return getGerOverride(period,cat);
     const lv=catLevel(cat);
-
-    // Leaf nodes: return pv (handles CMV override)
-    if(lv>=3) return pv(period,cat);
-
     const idx=cats.indexOf(cat);
-    if(idx<0) return pvRaw(period,cat);
 
     // FAT override: the 01.1 level-2 group returns ext.fat directly
-    // (ignoring all its children — they will be hidden in the table)
     if(fonte==='externa' && cat===externaCats.fat01xCat){
       const ext=S.fatCMV[period]||{};
       return ext.fat || pvChildSum(period, cat, lv);
@@ -985,12 +971,12 @@ function renderGer(con, parsed, meta, fonte){
       return cumulative;
     }
 
-    // Level 1 or 2: sum direct children
+    // All other levels: try to sum children; if no children found, return leaf value
     return pvChildSum(period, cat, lv);
   }
 
   function pvChildSum(period, cat, lv){
-    const idx=cats.indexOf(cat); if(idx<0) return pvRaw(period,cat);
+    const idx=cats.indexOf(cat); if(idx<0) return pv(period,cat);
     const childLevel=lv+1;
     let total=0; let found=false;
     for(let i=idx+1;i<cats.length;i++){
@@ -998,6 +984,7 @@ function renderGer(con, parsed, meta, fonte){
       if(clv<=lv) break;
       if(clv===childLevel){ total+=pvAgg(period,c); found=true; }
     }
+    // No children → this is a true leaf; return its value (respects byPeriod updates)
     return found?total:pv(period,cat);
   }
 
