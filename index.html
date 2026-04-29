@@ -175,7 +175,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .avc{color:var(--pu);font-size:11px;background:rgba(109,40,217,.04)}
 .ahc{font-size:11px;font-weight:600}.ahp{color:var(--gn)}.ahn{color:var(--rd)}
 .editable-cell{cursor:pointer}.editable-cell:hover{background:rgba(184,146,42,.08)!important;box-shadow:inset 0 0 0 1px rgba(184,146,42,.35)}.edit-cell-input{width:110px;padding:5px 8px;border:1.5px solid var(--gold);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;outline:none;background:#fff}
-.computed-cell{cursor:default;opacity:.92}
+.computed-cell{cursor:default;position:relative}.computed-cell::after{content:'Σ';position:absolute;top:3px;right:4px;font-size:9px;color:var(--tx3);opacity:0;transition:opacity .15s;font-weight:700;line-height:1}.computed-cell:hover::after{opacity:.6}.editable-cell{position:relative}.editable-cell:hover::after{content:'✎';position:absolute;top:3px;right:4px;font-size:9px;color:var(--gold);opacity:0;transition:opacity .15s;line-height:1}.editable-cell:hover::after{opacity:.8}
 #tab-fat,#page-fat,#ger-fonte-btns,#ger-fonte-btns+span{display:none!important}.filter-card div:has(>#ger-fonte-btns){display:none!important}
 
 /* ── COLLAPSE BTN ── */
