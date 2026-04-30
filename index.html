@@ -977,24 +977,24 @@ function renderGer(con, parsed, meta, fonte){
 
   function pvChildSum(period, cat, lv){
     const idx=cats.indexOf(cat); if(idx<0) return pv(period,cat);
-    // Discover the actual direct-child level: it's the level of the first
-    // descendant that appears right after this category. This handles cases
-    // where the hierarchy skips a level (e.g. lv1 "03 Custos" → lv3 "03.1 ...").
+    // Pass 1: find what level the immediate children are at.
+    // We can't assume lv+1 because the hierarchy may skip levels
+    // (e.g. level-1 "01 Receitas" → level-3 "01.1 Receita de Vendas").
     let childLevel=-1;
     for(let i=idx+1;i<cats.length;i++){
       const clv=catLevel(cats[i]);
-      if(clv<=lv) break; // left the group without finding any child
-      if(childLevel===-1) childLevel=clv; // first deeper level = direct child level
-      else break;
+      if(clv<=lv) break; // exited the group
+      if(childLevel===-1) childLevel=clv; // first deeper item sets the child level
+      // keep scanning — don't break early
     }
-    if(childLevel===-1) return pv(period,cat); // no descendants → leaf
+    if(childLevel===-1) return pv(period,cat); // no descendants → true leaf
+    // Pass 2: sum all direct children (those exactly at childLevel)
     let total=0; let found=false;
     for(let i=idx+1;i<cats.length;i++){
       const c=cats[i]; const clv=catLevel(c);
       if(clv<=lv) break;
       if(clv===childLevel){ total+=pvAgg(period,c); found=true; }
     }
-    // No children at discovered level → leaf; return raw value
     return found?total:pv(period,cat);
   }
 
@@ -1096,6 +1096,63 @@ function renderGer(con, parsed, meta, fonte){
     const ms=[...selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
     S.gerView={selP,isAcum,showAV,showAH,fonte}; // save current filter state
     const firstP=ms[0];
+
+    // --- TRIMESTRE MODE: build quarter columns instead of month columns ---
+    if(triMode && selTris.size>0){
+      const triList=[...selTris].sort((a,b)=>a-b);
+      const K=computeKPIs(selP); updateKPICards(K);
+      if(chartsInitialized) updateCharts(K); else { createCharts(K); chartsInitialized=true; }
+      const rb0=K.allRB||1;
+      let h=`<div class="dre-outer"><div class="dre-scrollbar-track" id="ger-sbt"><div class="dre-scrollbar-thumb" id="ger-sbth"></div></div>
+        <div class="dre-scroll" id="ger-scr"><table class="dre-t"><thead><tr>
+        <th class="tl" rowspan="2" style="vertical-align:bottom">Categoria</th>`;
+      triList.forEach((q,qi)=>{
+        const cols=1+(showAV?1:0)+(showAH&&qi>0?1:0);
+        h+=`<th colspan="${cols}" style="text-align:center;background:${qi%2===0?'#e8ecf5':'#dde4f2'};color:var(--ac);font-weight:700">${triLabel(q)}</th>`;
+      });
+      if(triList.length>1) h+=`<th colspan="${1+(showAV?1:0)}" style="text-align:center;background:#e2e6f0">Total</th>`;
+      h+=`</tr><tr>`;
+      triList.forEach((_,qi)=>{
+        h+=`<th>Valor (R$)</th>`;
+        if(showAV) h+=`<th style="color:var(--pu)">A.V.%</th>`;
+        if(showAH&&qi>0) h+=`<th style="color:var(--am)">A.H.%</th>`;
+      });
+      if(triList.length>1){ h+=`<th>Valor (R$)</th>`; if(showAV)h+=`<th style="color:var(--pu)">A.V.%</th>`; }
+      h+=`</tr></thead><tbody>`;
+      const hiddenBySrc=new Set();
+      if(fonte==='externa'&&externaCats.fat01xChildren.length) externaCats.fat01xChildren.forEach(c=>hiddenBySrc.add(c));
+      cats.forEach((cat,i)=>{
+        if(hiddenBySrc.has(cat)) return;
+        const rc=rClass(cat); const lv=catLevel(cat);
+        const canCol=lv<=3; const isCol=collapsed.has(cat);
+        let hide=false,ci=i;
+        for(let d=0;d<8;d++){const pp=groupMap[ci];if(!pp)break;if(collapsed.has(pp)){hide=true;break;}ci=cats.indexOf(pp);if(ci<0)break;}
+        const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._gTog('${cat.replace(/'/g,"'").replace(/\//g,'\/')}',${i})">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
+        h+=`<tr class="${rc}${hide?' hrow':''}" data-gi="${i}"><td>${tg}${cat}</td>`;
+        const isLeaf=isLeafCat(cat,i);
+        let rowT=0;
+        const base0=triSum(triList[0],cat);
+        triList.forEach((q,qi)=>{
+          const tv=triSum(q,cat); rowT+=tv; const rbM=getTriPeriods(q).reduce((s,p)=>s+pRB(p),0)||1;
+          // Quarter totals are always computed (aggregated), never directly editable
+          h+=`<td class="computed-cell" title="Soma dos meses do ${triLabel(q)}">${fmt(tv)}</td>`;
+          if(showAV) h+=`<td class="avc">${rb0?(tv/rb0*100).toFixed(1):0}%</td>`;
+          if(showAH&&qi>0){
+            const prevTv=triSum(triList[qi-1],cat);
+            if(prevTv!==0){const ah=+((tv-prevTv)/Math.abs(prevTv)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+            else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
+          }
+        });
+        if(triList.length>1){ h+=`<td>${fmt(rowT)}</td>`; if(showAV)h+=`<td class="avc">${(rowT/rb0*100).toFixed(1)}%</td>`; }
+        h+=`</tr>`;
+      });
+      h+=`</tbody></table></div></div>`;
+      el('ger-ta').innerHTML=h;
+      el('btn-acum').classList.toggle('on',isAcum);
+      initScrollSync('ger-sbt','ger-sbth','ger-scr');
+      return; // done — skip normal month rendering below
+    }
+    // --- END TRIMESTRE MODE ---
 
     // Recompute KPIs and update cards based on currently selected periods
     const K=computeKPIs(selP);
@@ -1287,10 +1344,10 @@ function renderGer(con, parsed, meta, fonte){
         <span class="filter-label">Período <span class="filter-hint">— Shift+clique para múltiplos</span></span>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <button class="btn-tog" id="btn-acum" onclick="W._gAcum()">Acumulado</button>
-          <button class="btn-tog btn-tri" onclick="W._gTri(1,this)">1° Tri</button>
-          <button class="btn-tog btn-tri" onclick="W._gTri(2,this)">2° Tri</button>
-          <button class="btn-tog btn-tri" onclick="W._gTri(3,this)">3° Tri</button>
-          <button class="btn-tog btn-tri" onclick="W._gTri(4,this)">4° Tri</button>
+          <button class="btn-tog btn-tri" id="btn-tri1" onclick="W._gTri(1,this)">1° Tri</button>
+          <button class="btn-tog btn-tri" id="btn-tri2" onclick="W._gTri(2,this)">2° Tri</button>
+          <button class="btn-tog btn-tri" id="btn-tri3" onclick="W._gTri(3,this)">3° Tri</button>
+          <button class="btn-tog btn-tri" id="btn-tri4" onclick="W._gTri(4,this)">4° Tri</button>
           <button class="btn-tog" id="btn-av" onclick="W._gAV()">A. Vertical %</button>
           <button class="btn-tog" id="btn-ah" onclick="W._gAH()">A. Horizontal %</button>
         </div>
@@ -1524,38 +1581,47 @@ function renderGer(con, parsed, meta, fonte){
     else selP.has(p)&&selP.size>1?selP.delete(p):selP.add(p);
     lastI=i;
     if(isAcum){isAcum=false;el('btn-acum').classList.remove('on');}
-    // Deactivate any active quarter buttons
+    // Deactivate quarter mode when clicking individual months
+    triMode=false; selTris.clear();
     document.querySelectorAll('.btn-tri.on').forEach(b=>b.classList.remove('on'));
     document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.toggle('active',selP.has(e.dataset.p)));
     buildT();
   };
   W._gAcum=()=>{ isAcum=!isAcum; el('btn-acum').classList.toggle('on',isAcum); buildT(); };
 
-  // Quarter filter: select all months of a given quarter that exist in `periods`
+  // Quarter column mode: selected quarters appear as aggregated columns
   const QUARTER_MONTHS={
     1:['Jan','Fev','Mar'], 2:['Abr','Mai','Jun'],
     3:['Jul','Ago','Set'], 4:['Out','Nov','Dez']
   };
-  W._gTri=(q,btn)=>{
-    // Find which periods belong to this quarter (match "MMM/YYYY" pattern)
+  let triMode=false;       // true = quarter-column view
+  let selTris=new Set();   // which quarters (1-4) are selected
+
+  function getTriPeriods(q){
     const qMonths=QUARTER_MONTHS[q];
-    const qPeriods=periods.filter(p=>{
-      const mon=p.split('/')[0];
-      return qMonths.some(m=>m.toLowerCase()===mon.toLowerCase());
-    });
-    if(!qPeriods.length){ toast('Nenhum mês deste trimestre encontrado nos dados.','error'); return; }
-    // Toggle: if already exactly these periods selected, deselect (go back to all)
-    const already=[...selP].sort().join(',')===[...qPeriods].sort().join(',');
-    if(already){
+    return periods.filter(p=>qMonths.some(m=>m.toLowerCase()===p.split('/')[0].toLowerCase()));
+  }
+  function triLabel(q){ return ['','1° Tri','2° Tri','3° Tri','4° Tri'][q]; }
+  function triSum(q,cat){ return getTriPeriods(q).reduce((s,p)=>s+pvAgg(p,cat),0); }
+
+  W._gTri=(q,btn)=>{
+    if(selTris.has(q)) selTris.delete(q);
+    else selTris.add(q);
+
+    if(selTris.size===0){
+      // No quarters selected → exit tri mode, restore all months
+      triMode=false;
       selP=new Set(periods);
       document.querySelectorAll('.btn-tri').forEach(b=>b.classList.remove('on'));
+      document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.add('active'));
     } else {
-      selP=new Set(qPeriods);
-      document.querySelectorAll('.btn-tri').forEach(b=>b.classList.remove('on'));
-      btn.classList.add('on');
+      triMode=true;
+      btn.classList.toggle('on', selTris.has(q));
+      // In tri mode, pills just show which months are covered; grey out uncovered
+      const coveredMonths=new Set([...selTris].flatMap(tq=>getTriPeriods(tq)));
+      document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.toggle('active',coveredMonths.has(e.dataset.p)));
     }
     if(isAcum){isAcum=false;el('btn-acum').classList.remove('on');}
-    document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.toggle('active',selP.has(e.dataset.p)));
     buildT();
   };
   W._gAV=()=>{ showAV=!showAV; el('btn-av').classList.toggle('on',showAV); buildT(); };
