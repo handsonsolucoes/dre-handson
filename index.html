@@ -832,6 +832,21 @@ function renderCC(con, parsed, meta){
     ?`<span class="badge bg-gn" style="font-size:11px">✓ Rateio: ${S.rateio.origens.join(', ')}</span>`:'';
   const pillsH=periods.map((p,i)=>`<span class="pill${selP.has(p)?' active':''}" data-i="${i}" data-p="${p}" onclick="W._ccp(event,'${p}',${i})">${p}</span>`).join('');
   const ccH=`<span class="chip active" onclick="W._ccCC(this,'total')">Todos</span>`+displayCCs.map(c=>`<span class="chip" onclick="W._ccCC(this,'${c.replace(/'/g,"&#39;")}')">${c}</span>`).join('');
+  // DEBUG helper — remove before production
+  W._dbg=()=>{
+    const out=['=== CATS & LEVELS ==='];
+    cats.forEach((c,i)=>{
+      const lv=catLevel(c);
+      const leaf=isLeafCat(c,i);
+      const p=Object.keys(byPeriod)[0];
+      const raw=(byPeriod[p]||{})[c]||0;
+      const agg=pvAgg(p,c);
+      out.push(`[lv${lv}${leaf?'*':' '}] ${c.padEnd(50)} raw=${raw.toFixed(2).padStart(12)} agg=${agg.toFixed(2).padStart(12)}`);
+    });
+    console.log(out.join('\n'));
+    alert('Check console for debug output (cats, levels, raw vs agg values)');
+  };
+
   const fb=meta?`<div class="file-bar"><span>📄</span><div class="file-bar-name">${meta.name}</div><div class="file-bar-date">${meta.date}</div>
     <button class="btn btn-sm" style="margin-left:auto;background:var(--rdb);color:var(--rd);border:1px solid rgba(185,28,28,.2)" onclick="deleteData('cc')">🗑 Excluir</button>
     <button class="btn btn-sm btn-outline" onclick="openUp('cc')">↩ Substituir</button></div>`:'';
