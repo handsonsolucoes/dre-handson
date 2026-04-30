@@ -175,6 +175,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .avc{color:var(--pu);font-size:11px;background:rgba(109,40,217,.04)}
 .ahc{font-size:11px;font-weight:600}.ahp{color:var(--gn)}.ahn{color:var(--rd)}
 .editable-cell{cursor:pointer}.editable-cell:hover{background:rgba(184,146,42,.08)!important;box-shadow:inset 0 0 0 1px rgba(184,146,42,.35)}.edit-cell-input{width:110px;padding:5px 8px;border:1.5px solid var(--gold);border-radius:6px;font-size:12px;text-align:right;font-family:inherit;outline:none;background:#fff}
+.pill-sep{display:inline-block;width:1px;height:20px;background:var(--bd);margin:0 6px;vertical-align:middle;opacity:.5}.tri-pill{background:transparent;border:1.5px solid var(--ac);color:var(--ac)!important;font-weight:700}.tri-pill.on{background:var(--ac)!important;color:#fff!important}.sem-pill{background:transparent;border:1.5px solid var(--pu);color:var(--pu)!important;font-weight:700}.sem-pill.on{background:var(--pu)!important;color:#fff!important}
 .computed-cell{cursor:default;position:relative}.computed-cell::after{content:'Σ';position:absolute;top:3px;right:4px;font-size:9px;color:var(--tx3);opacity:0;transition:opacity .15s;font-weight:700;line-height:1}.computed-cell:hover::after{opacity:.6}.editable-cell{position:relative}.editable-cell:hover::after{content:'✎';position:absolute;top:3px;right:4px;font-size:9px;color:var(--gold);opacity:0;transition:opacity .15s;line-height:1}.editable-cell:hover::after{opacity:.8}
 #tab-fat,#page-fat,#ger-fonte-btns,#ger-fonte-btns+span{display:none!important}.filter-card div:has(>#ger-fonte-btns){display:none!important}
 
@@ -1097,62 +1098,63 @@ function renderGer(con, parsed, meta, fonte){
     S.gerView={selP,isAcum,showAV,showAH,fonte}; // save current filter state
     const firstP=ms[0];
 
-    // --- TRIMESTRE MODE: build quarter columns instead of month columns ---
-    if(triMode && selTris.size>0){
-      const triList=[...selTris].sort((a,b)=>a-b);
-      const K=computeKPIs(selP); updateKPICards(K);
-      if(chartsInitialized) updateCharts(K); else { createCharts(K); chartsInitialized=true; }
-      const rb0=K.allRB||1;
-      let h=`<div class="dre-outer"><div class="dre-scrollbar-track" id="ger-sbt"><div class="dre-scrollbar-thumb" id="ger-sbth"></div></div>
-        <div class="dre-scroll" id="ger-scr"><table class="dre-t"><thead><tr>
-        <th class="tl" rowspan="2" style="vertical-align:bottom">Categoria</th>`;
-      triList.forEach((q,qi)=>{
-        const cols=1+(showAV?1:0)+(showAH&&qi>0?1:0);
-        h+=`<th colspan="${cols}" style="text-align:center;background:${qi%2===0?'#e8ecf5':'#dde4f2'};color:var(--ac);font-weight:700">${triLabel(q)}</th>`;
-      });
-      if(triList.length>1) h+=`<th colspan="${1+(showAV?1:0)}" style="text-align:center;background:#e2e6f0">Total</th>`;
-      h+=`</tr><tr>`;
-      triList.forEach((_,qi)=>{
-        h+=`<th>Valor (R$)</th>`;
-        if(showAV) h+=`<th style="color:var(--pu)">A.V.%</th>`;
-        if(showAH&&qi>0) h+=`<th style="color:var(--am)">A.H.%</th>`;
-      });
-      if(triList.length>1){ h+=`<th>Valor (R$)</th>`; if(showAV)h+=`<th style="color:var(--pu)">A.V.%</th>`; }
-      h+=`</tr></thead><tbody>`;
-      const hiddenBySrc=new Set();
-      if(fonte==='externa'&&externaCats.fat01xChildren.length) externaCats.fat01xChildren.forEach(c=>hiddenBySrc.add(c));
-      cats.forEach((cat,i)=>{
-        if(hiddenBySrc.has(cat)) return;
-        const rc=rClass(cat); const lv=catLevel(cat);
-        const canCol=lv<=3; const isCol=collapsed.has(cat);
-        let hide=false,ci=i;
-        for(let d=0;d<8;d++){const pp=groupMap[ci];if(!pp)break;if(collapsed.has(pp)){hide=true;break;}ci=cats.indexOf(pp);if(ci<0)break;}
-        const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._gTog('${cat.replace(/'/g,"'").replace(/\//g,'\/')}',${i})">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
-        h+=`<tr class="${rc}${hide?' hrow':''}" data-gi="${i}"><td>${tg}${cat}</td>`;
-        const isLeaf=isLeafCat(cat,i);
-        let rowT=0;
-        const base0=triSum(triList[0],cat);
-        triList.forEach((q,qi)=>{
-          const tv=triSum(q,cat); rowT+=tv; const rbM=getTriPeriods(q).reduce((s,p)=>s+pRB(p),0)||1;
-          // Quarter totals are always computed (aggregated), never directly editable
-          h+=`<td class="computed-cell" title="Soma dos meses do ${triLabel(q)}">${fmt(tv)}</td>`;
-          if(showAV) h+=`<td class="avc">${rb0?(tv/rb0*100).toFixed(1):0}%</td>`;
-          if(showAH&&qi>0){
-            const prevTv=triSum(triList[qi-1],cat);
-            if(prevTv!==0){const ah=+((tv-prevTv)/Math.abs(prevTv)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
-            else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
-          }
+    // --- GROUP MODE: tri/semester columns ---
+    if(triMode){
+      const groups=buildGroups();
+      if(groups.length===0){ triMode=false; } // safety: fall through
+      else {
+        const allGrpPeriods=[...new Set(groups.flatMap(g=>g.periods))];
+        const K=computeKPIs(new Set(allGrpPeriods)); updateKPICards(K);
+        if(chartsInitialized) updateCharts(K); else { createCharts(K); chartsInitialized=true; }
+        const rb0=K.allRB||1;
+        let h=`<div class="dre-outer"><div class="dre-scrollbar-track" id="ger-sbt"><div class="dre-scrollbar-thumb" id="ger-sbth"></div></div>
+          <div class="dre-scroll" id="ger-scr"><table class="dre-t"><thead><tr>
+          <th class="tl" rowspan="2" style="vertical-align:bottom">Categoria</th>`;
+        groups.forEach((g,gi)=>{
+          const cols=1+(showAV?1:0)+(showAH&&gi>0?1:0);
+          h+=`<th colspan="${cols}" style="text-align:center;background:${gi%2===0?'#e8ecf5':'#dde4f2'};color:var(--ac);font-weight:700">${g.label}</th>`;
         });
-        if(triList.length>1){ h+=`<td>${fmt(rowT)}</td>`; if(showAV)h+=`<td class="avc">${(rowT/rb0*100).toFixed(1)}%</td>`; }
-        h+=`</tr>`;
-      });
-      h+=`</tbody></table></div></div>`;
-      el('ger-ta').innerHTML=h;
-      el('btn-acum').classList.toggle('on',isAcum);
-      initScrollSync('ger-sbt','ger-sbth','ger-scr');
-      return; // done — skip normal month rendering below
+        if(groups.length>1) h+=`<th colspan="${1+(showAV?1:0)}" style="text-align:center;background:#e2e6f0">Total</th>`;
+        h+=`</tr><tr>`;
+        groups.forEach((_,gi)=>{
+          h+=`<th>Valor (R$)</th>`;
+          if(showAV) h+=`<th style="color:var(--pu)">A.V.%</th>`;
+          if(showAH&&gi>0) h+=`<th style="color:var(--am)">A.H.%</th>`;
+        });
+        if(groups.length>1){ h+=`<th>Valor (R$)</th>`; if(showAV)h+=`<th style="color:var(--pu)">A.V.%</th>`; }
+        h+=`</tr></thead><tbody>`;
+        const hiddenBySrc=new Set();
+        if(fonte==='externa'&&externaCats.fat01xChildren.length) externaCats.fat01xChildren.forEach(c=>hiddenBySrc.add(c));
+        cats.forEach((cat,i)=>{
+          if(hiddenBySrc.has(cat)) return;
+          const rc=rClass(cat); const lv=catLevel(cat);
+          const canCol=lv<=3; const isCol=collapsed.has(cat);
+          let hide=false,ci=i;
+          for(let d=0;d<8;d++){const pp=groupMap[ci];if(!pp)break;if(collapsed.has(pp)){hide=true;break;}ci=cats.indexOf(pp);if(ci<0)break;}
+          const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._gTog('${cat.replace(/'/g,"\'").replace(/\//g,'\/')}',${i})">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
+          h+=`<tr class="${rc}${hide?' hrow':''}" data-gi="${i}"><td>${tg}${cat}</td>`;
+          let rowT=0;
+          groups.forEach((g,gi)=>{
+            const tv=groupSum(g,cat); rowT+=tv;
+            h+=`<td class="computed-cell" title="Soma de ${g.periods.join(', ')}">${fmt(tv)}</td>`;
+            if(showAV) h+=`<td class="avc">${rb0?(tv/rb0*100).toFixed(1):0}%</td>`;
+            if(showAH&&gi>0){
+              const prevTv=groupSum(groups[gi-1],cat);
+              if(prevTv!==0){const ah=+((tv-prevTv)/Math.abs(prevTv)*100).toFixed(1);h+=`<td class="ahc ${ah>=0?'ahp':'ahn'}">${ah>=0?'+':''}${ah}%</td>`;}
+              else h+=`<td class="ahc" style="color:var(--tx3)">—</td>`;
+            }
+          });
+          if(groups.length>1){ h+=`<td>${fmt(rowT)}</td>`; if(showAV)h+=`<td class="avc">${(rowT/rb0*100).toFixed(1)}%</td>`; }
+          h+=`</tr>`;
+        });
+        h+=`</tbody></table></div></div>`;
+        el('ger-ta').innerHTML=h;
+        el('btn-acum').classList.toggle('on',isAcum);
+        initScrollSync('ger-sbt','ger-sbth','ger-scr');
+        return;
+      }
     }
-    // --- END TRIMESTRE MODE ---
+    // --- END GROUP MODE ---
 
     // Recompute KPIs and update cards based on currently selected periods
     const K=computeKPIs(selP);
@@ -1344,15 +1346,20 @@ function renderGer(con, parsed, meta, fonte){
         <span class="filter-label">Período <span class="filter-hint">— Shift+clique para múltiplos</span></span>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <button class="btn-tog" id="btn-acum" onclick="W._gAcum()">Acumulado</button>
-          <button class="btn-tog btn-tri" id="btn-tri1" onclick="W._gTri(1,this)">1° Tri</button>
-          <button class="btn-tog btn-tri" id="btn-tri2" onclick="W._gTri(2,this)">2° Tri</button>
-          <button class="btn-tog btn-tri" id="btn-tri3" onclick="W._gTri(3,this)">3° Tri</button>
-          <button class="btn-tog btn-tri" id="btn-tri4" onclick="W._gTri(4,this)">4° Tri</button>
           <button class="btn-tog" id="btn-av" onclick="W._gAV()">A. Vertical %</button>
           <button class="btn-tog" id="btn-ah" onclick="W._gAH()">A. Horizontal %</button>
         </div>
       </div>
-      <div class="pills" id="ger-pills">${periods.map((p,i)=>`<span class="pill active" data-i="${i}" data-p="${p}" onclick="W._gP(event,'${p}',${i})">${p}</span>`).join('')}</div>
+      <div class="pills" id="ger-pills">
+        ${periods.map((p,i)=>`<span class="pill active" data-i="${i}" data-p="${p}" onclick="W._gP(event,'${p}',${i})">${p}</span>`).join('')}
+        <span class="pill-sep"></span>
+        <span class="pill btn-tri tri-pill" id="btn-tri1" onclick="W._gTri(1,this)">1° Tri</span>
+        <span class="pill btn-tri tri-pill" id="btn-tri2" onclick="W._gTri(2,this)">2° Tri</span>
+        <span class="pill btn-tri tri-pill" id="btn-tri3" onclick="W._gTri(3,this)">3° Tri</span>
+        <span class="pill btn-tri tri-pill" id="btn-tri4" onclick="W._gTri(4,this)">4° Tri</span>
+        <span class="pill btn-sem sem-pill" id="btn-sem1" onclick="W._gSem(1,this)">1° Sem</span>
+        <span class="pill btn-sem sem-pill" id="btn-sem2" onclick="W._gSem(2,this)">2° Sem</span>
+      </div>
     </div>
     <div id="ger-ta"></div>`;
 
@@ -1581,48 +1588,73 @@ function renderGer(con, parsed, meta, fonte){
     else selP.has(p)&&selP.size>1?selP.delete(p):selP.add(p);
     lastI=i;
     if(isAcum){isAcum=false;el('btn-acum').classList.remove('on');}
-    // Deactivate quarter mode when clicking individual months
-    triMode=false; selTris.clear();
-    document.querySelectorAll('.btn-tri.on').forEach(b=>b.classList.remove('on'));
+    // Deactivate group mode when clicking individual month pills
+    triMode=false; selTris.clear(); selSems.clear();
+    document.querySelectorAll('.btn-tri.on,.btn-sem.on').forEach(b=>b.classList.remove('on'));
     document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.toggle('active',selP.has(e.dataset.p)));
     buildT();
   };
   W._gAcum=()=>{ isAcum=!isAcum; el('btn-acum').classList.toggle('on',isAcum); buildT(); };
 
-  // Quarter column mode: selected quarters appear as aggregated columns
+  // ── Period group mode: tri/semester buttons act as aggregated columns ─────────
   const QUARTER_MONTHS={
     1:['Jan','Fev','Mar'], 2:['Abr','Mai','Jun'],
     3:['Jul','Ago','Set'], 4:['Out','Nov','Dez']
   };
-  let triMode=false;       // true = quarter-column view
-  let selTris=new Set();   // which quarters (1-4) are selected
+  const SEM_MONTHS={
+    1:['Jan','Fev','Mar','Abr','Mai','Jun'],
+    2:['Jul','Ago','Set','Out','Nov','Dez']
+  };
 
-  function getTriPeriods(q){
-    const qMonths=QUARTER_MONTHS[q];
-    return periods.filter(p=>qMonths.some(m=>m.toLowerCase()===p.split('/')[0].toLowerCase()));
+  let triMode=false;       // true = group-column view active
+  let selTris=new Set();   // selected quarters (1-4)
+  let selSems=new Set();   // selected semesters (1-2)
+
+  // Unified group descriptor: {id, label, periods[]}
+  function buildGroups(){
+    const groups=[];
+    [...selTris].sort().forEach(q=>{
+      const ps=periods.filter(p=>QUARTER_MONTHS[q].some(m=>m.toLowerCase()===p.split('/')[0].toLowerCase()));
+      if(ps.length) groups.push({id:'tri'+q, label:['','1° Tri','2° Tri','3° Tri','4° Tri'][q], periods:ps});
+    });
+    [...selSems].sort().forEach(s=>{
+      const ps=periods.filter(p=>SEM_MONTHS[s].some(m=>m.toLowerCase()===p.split('/')[0].toLowerCase()));
+      if(ps.length) groups.push({id:'sem'+s, label:['','1° Sem','2° Sem'][s], periods:ps});
+    });
+    // sort groups by their first period's position
+    groups.sort((a,b)=>periods.indexOf(a.periods[0])-periods.indexOf(b.periods[0]));
+    return groups;
   }
+
+  function groupSum(grp,cat){ return grp.periods.reduce((s,p)=>s+pvAgg(p,cat),0); }
+  // Keep backward-compat helpers used in buildT render block
+  function getTriPeriods(q){ return periods.filter(p=>QUARTER_MONTHS[q].some(m=>m.toLowerCase()===p.split('/')[0].toLowerCase())); }
   function triLabel(q){ return ['','1° Tri','2° Tri','3° Tri','4° Tri'][q]; }
   function triSum(q,cat){ return getTriPeriods(q).reduce((s,p)=>s+pvAgg(p,cat),0); }
 
-  W._gTri=(q,btn)=>{
-    if(selTris.has(q)) selTris.delete(q);
-    else selTris.add(q);
-
-    if(selTris.size===0){
-      // No quarters selected → exit tri mode, restore all months
-      triMode=false;
+  function _applyGroupMode(){
+    triMode = selTris.size>0 || selSems.size>0;
+    if(!triMode){
       selP=new Set(periods);
-      document.querySelectorAll('.btn-tri').forEach(b=>b.classList.remove('on'));
-      document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.add('active'));
+      document.querySelectorAll('.btn-tri,.btn-sem').forEach(b=>b.classList.remove('on'));
+      document.querySelectorAll('#ger-pills .pill:not(.tri-pill):not(.sem-pill)').forEach(e=>e.classList.add('active'));
     } else {
-      triMode=true;
-      btn.classList.toggle('on', selTris.has(q));
-      // In tri mode, pills just show which months are covered; grey out uncovered
-      const coveredMonths=new Set([...selTris].flatMap(tq=>getTriPeriods(tq)));
-      document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.toggle('active',coveredMonths.has(e.dataset.p)));
+      const covered=new Set(buildGroups().flatMap(g=>g.periods));
+      document.querySelectorAll('#ger-pills .pill:not(.tri-pill):not(.sem-pill)').forEach(e=>e.classList.toggle('active',covered.has(e.dataset.p)));
+      document.querySelectorAll('.btn-tri').forEach(b=>{ const q=parseInt(b.id.replace('btn-tri','')); b.classList.toggle('on',selTris.has(q)); });
+      document.querySelectorAll('.btn-sem').forEach(b=>{ const s=parseInt(b.id.replace('btn-sem','')); b.classList.toggle('on',selSems.has(s)); });
     }
     if(isAcum){isAcum=false;el('btn-acum').classList.remove('on');}
     buildT();
+  }
+
+  W._gTri=(q,btn)=>{
+    if(selTris.has(q)) selTris.delete(q); else selTris.add(q);
+    _applyGroupMode();
+  };
+  W._gSem=(s,btn)=>{
+    if(selSems.has(s)) selSems.delete(s); else selSems.add(s);
+    _applyGroupMode();
   };
   W._gAV=()=>{ showAV=!showAV; el('btn-av').classList.toggle('on',showAV); buildT(); };
   W._gAH=()=>{ showAH=!showAH; el('btn-ah').classList.toggle('on',showAH); buildT(); };
@@ -1958,18 +1990,27 @@ async function exportPDF(type, cfg){
       function pdfAgg(period,cat){
         if(pdfHasOverride(period,cat)) return S.gerOverrides[period][cat];
         const lv=catLevel(cat);
-        if(lv>=3) return pdfVal(period,cat);
         const idx=cats.indexOf(cat); if(idx<0) return pdfVal(period,cat);
         if(pdfFonte==='externa'&&cat===pdfExt.fat01xCat){
           const ext=S.fatCMV[period]||{}; return ext.fat||pdfChildSum(period,cat,lv);
         }
+        // T-row (level 0): cumulative sum of preceding level-1 groups
         if(lv===0){ let s=0; for(let i=0;i<idx;i++){if(catLevel(cats[i])===1)s+=pdfAgg(period,cats[i]);} return s; }
+        // All other levels: sum direct children; if no children, return leaf value
         return pdfChildSum(period,cat,lv);
       }
       function pdfChildSum(period,cat,lv){
         const idx=cats.indexOf(cat); if(idx<0) return pdfVal(period,cat);
-        const cl=lv+1; let t=0,f=false;
-        for(let i=idx+1;i<cats.length;i++){const c=cats[i];const cv=catLevel(c);if(cv<=lv)break;if(cv===cl){t+=pdfAgg(period,c);f=true;}}
+        // Discover actual child level (hierarchy may skip levels)
+        let childLevel=-1;
+        for(let i=idx+1;i<cats.length;i++){
+          const cv=catLevel(cats[i]);
+          if(cv<=lv) break;
+          if(childLevel===-1) childLevel=cv;
+        }
+        if(childLevel===-1) return pdfVal(period,cat);
+        let t=0,f=false;
+        for(let i=idx+1;i<cats.length;i++){const c=cats[i];const cv=catLevel(c);if(cv<=lv)break;if(cv===childLevel){t+=pdfAgg(period,c);f=true;}}
         return f?t:pdfVal(period,cat);
       }
       function pdfRB(period){ const c01T=cats.find(c=>/01T/.test(c)); return c01T?pdfAgg(period,c01T):gvPdf(byPeriod[period]||{},'01T'); }
@@ -2000,7 +2041,7 @@ async function exportPDF(type, cfg){
         {l:'Lucro Bruto',v:fK(allLB),s:'Mg Bruta: '+mBr.toFixed(1)+'%'},
         {l:'Result. Oper.',v:fK(allOP),s:'Mg Op.: '+mOp.toFixed(1)+'%'},
         {l:'Resultado Final',v:fK(allLQ),s:'Mg Final: '+mLiq.toFixed(1)+'%'},
-        {l:'Rec. Média/Mês',v:fK(allRB/(periods.length||1)),s:periods.length+' meses'},
+        {l:'Rec. Média/Mês',v:fK(allRB/(mCols.length||1)),s:mCols.length+' meses'},
       ];
       const kw=cW/4, kh=17;
       kpis.forEach((k,idx)=>{
