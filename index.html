@@ -977,14 +977,24 @@ function renderGer(con, parsed, meta, fonte){
 
   function pvChildSum(period, cat, lv){
     const idx=cats.indexOf(cat); if(idx<0) return pv(period,cat);
-    const childLevel=lv+1;
+    // Discover the actual direct-child level: it's the level of the first
+    // descendant that appears right after this category. This handles cases
+    // where the hierarchy skips a level (e.g. lv1 "03 Custos" → lv3 "03.1 ...").
+    let childLevel=-1;
+    for(let i=idx+1;i<cats.length;i++){
+      const clv=catLevel(cats[i]);
+      if(clv<=lv) break; // left the group without finding any child
+      if(childLevel===-1) childLevel=clv; // first deeper level = direct child level
+      else break;
+    }
+    if(childLevel===-1) return pv(period,cat); // no descendants → leaf
     let total=0; let found=false;
     for(let i=idx+1;i<cats.length;i++){
       const c=cats[i]; const clv=catLevel(c);
       if(clv<=lv) break;
       if(clv===childLevel){ total+=pvAgg(period,c); found=true; }
     }
-    // No children → this is a true leaf; return its value (respects byPeriod updates)
+    // No children at discovered level → leaf; return raw value
     return found?total:pv(period,cat);
   }
 
@@ -1277,6 +1287,10 @@ function renderGer(con, parsed, meta, fonte){
         <span class="filter-label">Período <span class="filter-hint">— Shift+clique para múltiplos</span></span>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <button class="btn-tog" id="btn-acum" onclick="W._gAcum()">Acumulado</button>
+          <button class="btn-tog btn-tri" onclick="W._gTri(1,this)">1° Tri</button>
+          <button class="btn-tog btn-tri" onclick="W._gTri(2,this)">2° Tri</button>
+          <button class="btn-tog btn-tri" onclick="W._gTri(3,this)">3° Tri</button>
+          <button class="btn-tog btn-tri" onclick="W._gTri(4,this)">4° Tri</button>
           <button class="btn-tog" id="btn-av" onclick="W._gAV()">A. Vertical %</button>
           <button class="btn-tog" id="btn-ah" onclick="W._gAH()">A. Horizontal %</button>
         </div>
@@ -1510,10 +1524,40 @@ function renderGer(con, parsed, meta, fonte){
     else selP.has(p)&&selP.size>1?selP.delete(p):selP.add(p);
     lastI=i;
     if(isAcum){isAcum=false;el('btn-acum').classList.remove('on');}
+    // Deactivate any active quarter buttons
+    document.querySelectorAll('.btn-tri.on').forEach(b=>b.classList.remove('on'));
     document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.toggle('active',selP.has(e.dataset.p)));
     buildT();
   };
   W._gAcum=()=>{ isAcum=!isAcum; el('btn-acum').classList.toggle('on',isAcum); buildT(); };
+
+  // Quarter filter: select all months of a given quarter that exist in `periods`
+  const QUARTER_MONTHS={
+    1:['Jan','Fev','Mar'], 2:['Abr','Mai','Jun'],
+    3:['Jul','Ago','Set'], 4:['Out','Nov','Dez']
+  };
+  W._gTri=(q,btn)=>{
+    // Find which periods belong to this quarter (match "MMM/YYYY" pattern)
+    const qMonths=QUARTER_MONTHS[q];
+    const qPeriods=periods.filter(p=>{
+      const mon=p.split('/')[0];
+      return qMonths.some(m=>m.toLowerCase()===mon.toLowerCase());
+    });
+    if(!qPeriods.length){ toast('Nenhum mês deste trimestre encontrado nos dados.','error'); return; }
+    // Toggle: if already exactly these periods selected, deselect (go back to all)
+    const already=[...selP].sort().join(',')===[...qPeriods].sort().join(',');
+    if(already){
+      selP=new Set(periods);
+      document.querySelectorAll('.btn-tri').forEach(b=>b.classList.remove('on'));
+    } else {
+      selP=new Set(qPeriods);
+      document.querySelectorAll('.btn-tri').forEach(b=>b.classList.remove('on'));
+      btn.classList.add('on');
+    }
+    if(isAcum){isAcum=false;el('btn-acum').classList.remove('on');}
+    document.querySelectorAll('#ger-pills .pill').forEach(e=>e.classList.toggle('active',selP.has(e.dataset.p)));
+    buildT();
+  };
   W._gAV=()=>{ showAV=!showAV; el('btn-av').classList.toggle('on',showAV); buildT(); };
   W._gAH=()=>{ showAH=!showAH; el('btn-ah').classList.toggle('on',showAH); buildT(); };
   W._gTog=(cat,idx)=>{ if(collapsed.has(cat))collapsed.delete(cat); else collapsed.add(cat); buildT(); };
