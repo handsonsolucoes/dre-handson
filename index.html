@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hands On — Gestão Financeira Inteligente</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -778,7 +779,7 @@ function renderCC(con, parsed, meta){
   // Remove origens from displayed CCs if rateio configured
   const displayCCs=S.rateio.origens.length?ccNames.filter(c=>!S.rateio.origens.includes(c)):ccNames;
   let selP=new Set([periods[periods.length-1]||'']);
-  let selCC='total', lastI=-1;
+  let selCC='total', lastI=-1, showAV=false;
   const cats=data.reduce((a,r)=>{ if(!a.includes(r.cat))a.push(r.cat); return a; },[]);
   const groupMap=buildGroupMap(cats);
   const collapsed=new Set();
@@ -804,13 +805,21 @@ function renderCC(con, parsed, meta){
     const cols=selCC==='total'?displayCCs:[selCC];
     const isMulti=selP.size>1;
 
+    // AV% base = valor da linha 01T (Receita Bruta), ou primeiro cat com valor
+    const rb01T=cats.find(c=>/01T/.test(c));
+    const avBase=Math.abs((rowBycat[rb01T]||{valor:0}).valor)||1;
+
     let h=`<div class="dre-outer">
       <div class="dre-scrollbar-track" id="cc-sbt"><div class="dre-scrollbar-thumb" id="cc-sbth"></div></div>
       <div class="dre-scroll" id="cc-scr">
       <table class="dre-t"><thead><tr>
         <th class="tl">Categoria</th>
         <th>${isMulti?'Total Período':'Total'}</th>`;
-    cols.forEach(c=>h+=`<th>${c}</th>`);
+    if(showAV) h+=`<th style="color:var(--pu);font-size:11px">AV%</th>`;
+    cols.forEach(c=>{
+      h+=`<th>${c}</th>`;
+      if(showAV) h+=`<th style="color:var(--pu);font-size:11px">AV%</th>`;
+    });
     h+=`</tr></thead><tbody>`;
     cats.forEach((cat,i)=>{
       const r=rowBycat[cat]||{valor:0,cc:{}};
@@ -819,7 +828,12 @@ function renderCC(con, parsed, meta){
       const canCol=lv<=3; const isCol=collapsed.has(cat);
       const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._ccTog('${cat.replace(/'/g,"\\'")}',this)">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
       h+=`<tr class="${rc}${isHidden?' hrow':''}" data-ci="${i}"><td>${tg}${cat}</td><td>${fmt(r.valor)}</td>`;
-      cols.forEach(c=>h+=`<td>${fmt(r.cc[c]||0)}</td>`);
+      if(showAV) h+=`<td class="avc">${(r.valor/avBase*100).toFixed(1)}%</td>`;
+      cols.forEach(c=>{
+        const cv=r.cc[c]||0;
+        h+=`<td>${fmt(cv)}</td>`;
+        if(showAV) h+=`<td class="avc">${(cv/avBase*100).toFixed(1)}%</td>`;
+      });
       h+=`</tr>`;
     });
     h+=`</tbody></table></div></div>`;
@@ -855,7 +869,7 @@ function renderCC(con, parsed, meta){
     <div class="filter-card">
       <div class="filter-row">
         <span class="filter-label">Período <span class="filter-hint">— Shift+clique para múltiplos</span></span>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${ratBadge}<button class="btn-tog" id="cc-acum" onclick="W._ccAcum()">Acumulado</button></div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${ratBadge}<button class="btn-tog" id="cc-acum" onclick="W._ccAcum()">Acumulado</button><button class="btn-tog" id="cc-av" onclick="W._ccAV()">A. Vertical %</button></div>
       </div>
       <div class="pills" id="cc-pills">${pillsH}</div>
     </div>
@@ -877,6 +891,7 @@ function renderCC(con, parsed, meta){
     buildT();
   };
   W._ccAcum=()=>{ selP=new Set(periods); el('cc-acum').classList.add('on'); document.querySelectorAll('#cc-pills .pill').forEach(e=>e.classList.add('active')); buildT(); };
+  W._ccAV=()=>{ showAV=!showAV; el('cc-av').classList.toggle('on',showAV); buildT(); };
   W._ccCC=(e,cc)=>{ selCC=cc; document.querySelectorAll('#cc-chips .chip').forEach(x=>x.classList.remove('active')); e.classList.add('active'); buildT(); };
   W._ccTog=(cat,btn)=>{
     if(collapsed.has(cat)){collapsed.delete(cat);btn.textContent='▼';btn.classList.remove('col');}
@@ -1486,6 +1501,8 @@ function renderGer(con, parsed, meta, fonte){
     }
   };
   Chart.register(datalabelPlugin);
+  // Register chartjs-plugin-datalabels for value labels on charts
+  if(typeof ChartDataLabels!=='undefined') Chart.register(ChartDataLabels);
 
   // Single-line chart with mean line and discrete labels
   function singleLineCh(id, data, lbs2, color, mean){
@@ -1560,12 +1577,15 @@ function renderGer(con, parsed, meta, fonte){
     chartRefs.mc=new Chart(el('c-mc'),{
       type:'line',
       data:{labels:lbs,datasets:[
-        {data:K.mcArr,borderColor:'#b45309',backgroundColor:'rgba(180,83,9,.08)',tension:0.35,pointRadius:3.5,fill:true,borderWidth:2,label:'Mg. Contr.',showLabels:false},
-        {data:K.cmvArr,borderColor:'#b91c1c',backgroundColor:'transparent',tension:0.35,pointRadius:3,fill:false,borderWidth:1.8,borderDash:[4,3],label:'% CMV',showLabels:false}
+        {data:K.mcArr,borderColor:'#b45309',backgroundColor:'rgba(180,83,9,.08)',tension:0.35,pointRadius:3.5,fill:true,borderWidth:2,label:'Mg. Contr.',datalabels:{align:'top',anchor:'top',color:'#b45309',font:{size:9,weight:'700'},formatter:v=>v==null?'':v.toFixed(1)+'%'}},
+        {data:K.cmvArr,borderColor:'#b91c1c',backgroundColor:'transparent',tension:0.35,pointRadius:3,fill:false,borderWidth:1.8,borderDash:[4,3],label:'% CMV',datalabels:{align:'bottom',anchor:'bottom',color:'#b91c1c',font:{size:9,weight:'700'},formatter:v=>v==null?'':v.toFixed(1)+'%'}}
       ]},
       options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:true,labels:{font:{size:10},boxWidth:12}},
-          tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+ctx.parsed.y.toFixed(1)+'%'}}},
+        plugins:{
+          legend:{display:true,labels:{font:{size:10},boxWidth:12}},
+          tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+ctx.parsed.y.toFixed(1)+'%'}},
+          datalabels:{display:true}
+        },
         scales:scaleOpts}
     });
     S.charts.push(chartRefs.mc);
