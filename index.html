@@ -391,7 +391,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
           <div style="display:flex;gap:5px;flex-wrap:wrap" id="pdf-cc-pills"></div>
         </div>
       </div>
-      <!-- AV/AH + Fonte (só para GER) -->
+      <!-- AV/AH -->
       <div id="pdf-ger-opts" style="display:none">
         <div class="fg">
           <label>Análises a incluir</label>
@@ -673,8 +673,8 @@ function fmt(v){
   const n=v<0;
   return`<span class="${n?'neg':'pos'}">${n?'(':''}`+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+(n?')':'')+'</span>';
 }
-function fmtPdf(v){ if(v===0)return'—'; const n=v<0; return(n?'(':'')+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+(n?')':''); }
-function fK(v){ if(!v)return'R$ 0'; const a=Math.abs(v); const s=a>=1e6?(a/1e6).toFixed(1)+'M':a>=1e3?(a/1e3).toFixed(0)+'k':a.toFixed(0); return(v<0?'− ':'')+'R$ '+s; }
+function fmtPdf(v){ if(v===0)return'—'; const n=v<0; return(n?'- ':'')+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fK(v){ if(!v)return'R$ 0'; const a=Math.abs(v); const s=a>=1e6?(a/1e6).toFixed(1)+'M':a>=1e3?(a/1e3).toFixed(0)+'k':a.toFixed(0); return(v<0?'- ':'')+'R$ '+s; }
 function catLevel(cat){ if(/^\d{2}T /.test(cat))return 0; if(/^\d{2} /.test(cat)&&!/^\d{2}\.\d/.test(cat))return 1; if(/^\d{2}\.\d+T /.test(cat))return 2; if(/^\d{2}\.\d+ /.test(cat))return 3; return 4; }
 function rClass(cat){ const lv=catLevel(cat); if(lv===0)return'rt'; if(lv===1)return'rs'; if(lv===2)return'rt'; if(lv===3)return'rb'; return'rb2'; }
 function buildGroupMap(cats){ const g={}; const stack=[]; cats.forEach((cat,i)=>{ const lv=catLevel(cat); while(stack.length>0&&stack[stack.length-1].lv>=lv)stack.pop(); if(stack.length>0)g[i]=stack[stack.length-1].cat; if(lv<=3)stack.push({lv,cat}); }); return g; }
@@ -800,7 +800,7 @@ function renderCC(con, parsed, meta){
   }
 
   function buildT(){
-    S.ccView.selP=selP; S.ccView.selCC=selCC;
+    S.ccView.selP=selP; S.ccView.selCC=selCC; S.ccView.showAV=showAV;
     const rowBycat=sumRows(selP);
     const cols=selCC==='total'?displayCCs:[selCC];
     const isMulti=selP.size>1;
@@ -1519,7 +1519,7 @@ function renderGer(con, parsed, meta, fonte){
           {
             data, borderColor:color, backgroundColor:color+'14',
             tension:0.35, pointRadius:3.5, pointHoverRadius:5,
-            fill:true, borderWidth:2, showLabels:true, label:''
+            fill:true, borderWidth:2, showLabels:false, label:''
           },
           {
             data:meanData,
@@ -1529,6 +1529,9 @@ function renderGer(con, parsed, meta, fonte){
             pointRadius:0,
             fill:false,
             tension:0,
+            cubicInterpolationMode:'linear',
+            stepped:false,
+            spanGaps:false,
             label:'Média '+mean.toFixed(1)+'%',
             showLabels:false,
           }
@@ -1863,7 +1866,7 @@ function openPdfFilter(type){
   const periods=p.periods;
 
   // Pre-fill from current page state
-  const curView = type==='ger' ? S.gerView : null;
+  const curView = type==='ger' ? S.gerView : S.ccView;
   const curAcum = curView ? curView.isAcum : false;
   const curSelP = curView ? curView.selP : null;
 
@@ -1899,8 +1902,13 @@ function openPdfFilter(type){
   el('pdf-cc-section').style.display=type==='cc'?'block':'none';
   if(type==='cc'){
     const ccNames=S.ccView.ccNames||[];
-    el('pdf-cc-pills').innerHTML=`<span class="chip active" data-cc="total" onclick="W._pdfCCAll(this)">Todos</span>`
-      +ccNames.map(c=>`<span class="chip" data-cc="${c}" onclick="W._pdfCCToggle(this)">${c}</span>`).join('');
+    const currentCC=S.ccView.selCC||'total';
+    el('pdf-cc-pills').innerHTML=`<span class="chip ${currentCC==='total'?'active':''}" data-cc="total" onclick="W._pdfCCAll(this)">Todos</span>`
+      +ccNames.map(c=>`<span class="chip ${currentCC===c?'active':''}" data-cc="${c}" onclick="W._pdfCCToggle(this)">${c}</span>`).join('');
+    if(!document.querySelectorAll('#pdf-cc-pills .chip.active').length){
+      const allChip=document.querySelector('#pdf-cc-pills .chip[data-cc="total"]');
+      if(allChip) allChip.classList.add('active');
+    }
     W._pdfCCAll=(e)=>{
       document.querySelectorAll('#pdf-cc-pills .chip').forEach(x=>x.classList.remove('active'));
       e.classList.add('active');
@@ -1913,14 +1921,20 @@ function openPdfFilter(type){
     };
   }
 
-  // GER options — pre-fill from current page state
-  el('pdf-ger-opts').style.display=type==='ger'?'block':'none';
+  // Analysis options — AV is available for GER and CC; AH only applies to GER
+  el('pdf-ger-opts').style.display='block';
+  const ahLabel=el('pdf-opt-ah')?el('pdf-opt-ah').closest('label'):null;
   if(type==='ger'){
     el('pdf-opt-av').checked=S.gerView.showAV||false;
     el('pdf-opt-ah').checked=S.gerView.showAH||false;
+    if(ahLabel) ahLabel.style.display='flex';
     const fonteExt=el('pdf-fonte-ext'); const fonteInt=el('pdf-fonte-int');
     const curFonte=S.gerView.fonte||S.fonte||'interna';
     if(fonteExt&&fonteInt){ fonteExt.checked=curFonte==='externa'; fonteInt.checked=curFonte!=='externa'; }
+  } else {
+    el('pdf-opt-av').checked=S.ccView.showAV||false;
+    el('pdf-opt-ah').checked=false;
+    if(ahLabel) ahLabel.style.display='none';
   }
 
   // Store refs for confirmPdfExport to read
@@ -1932,7 +1946,7 @@ function openPdfFilter(type){
       const active=[...document.querySelectorAll('#pdf-cc-pills .chip.active')].map(e=>e.dataset.cc).filter(c=>c!=='total');
       selCC=active.length?active:'total';
     }
-    const showAV=type==='ger'&&el('pdf-opt-av').checked;
+    const showAV=(type==='ger'||type==='cc')&&el('pdf-opt-av').checked;
     const showAH=type==='ger'&&el('pdf-opt-ah').checked;
     const pdfFonte="interna";
     // selP must always have values: use all periods as fallback for acum
@@ -2276,26 +2290,40 @@ async function exportPDF(type, cfg){
       const periodLabel=selPer.length===periods.length?'Acumulado':selPer.join(', ');
       secTit('DRE Centro de Custo — '+periodLabel);
 
-      // Column layout
+      // Column layout, with optional Analise Vertical columns
+      const showAVcc=!!cfg.showAV;
       const colCat=72;
-      const colTot=26;
-      const nCC=selCC.length;
-      const ccColW=(cW-colCat-colTot)/Math.max(nCC,1);
+      const dataCols=1+(showAVcc?1:0)+selCC.length*(1+(showAVcc?1:0));
+      const colW=(cW-colCat)/Math.max(dataCols,1);
+      const rb01T=cats.find(c=>/01T/.test(c));
+      const rb01TRow=rbcat[rb01T]||{valor:0,cc:{}};
+      const avBaseTotal=Math.abs(rb01TRow.valor)||1;
+      const avBaseCC={};
+      selCC.forEach(c=>{ avBaseCC[c]=Math.abs(rb01TRow.cc[c]||0)||1; });
 
       // Header
       doc.setFillColor(236,237,242); doc.rect(margin,y,cW,6,'F');
       doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(82,82,92);
       doc.text('CATEGORIA',margin+2,y+4.5);
-      doc.text('TOTAL',margin+colCat+colTot-1,y+4.5,{align:'right'});
-      selCC.forEach((c,ci)=>{
-        doc.text(c.substring(0,13),margin+colCat+colTot+ci*ccColW+ccColW-1,y+4.5,{align:'right'});
+      let hx=margin+colCat;
+      doc.text('TOTAL',hx+colW-1,y+4.5,{align:'right'}); hx+=colW;
+      if(showAVcc){ doc.text('AV%',hx+colW-1,y+4.5,{align:'right'}); hx+=colW; }
+      selCC.forEach((c)=>{
+        doc.text(c.substring(0,13),hx+colW-1,y+4.5,{align:'right'}); hx+=colW;
+        if(showAVcc){ doc.text('AV%',hx+colW-1,y+4.5,{align:'right'}); hx+=colW; }
       });
       y+=6.5;
 
       cats.forEach(cat=>{
         const r=rbcat[cat]||{valor:0,cc:{}};
-        const cells=[fmtPdf(r.valor),...selCC.map(c=>fmtPdf(r.cc[c]||0))];
-        const widths=[colTot,...selCC.map(()=>ccColW)];
+        const cells=[fmtPdf(r.valor)];
+        if(showAVcc) cells.push((r.valor/avBaseTotal*100).toFixed(1)+'%');
+        selCC.forEach(c=>{
+          const cv=r.cc[c]||0;
+          cells.push(fmtPdf(cv));
+          if(showAVcc) cells.push((cv/avBaseCC[c]*100).toFixed(1)+'%');
+        });
+        const widths=cells.map(()=>colW);
         paintRow(cat,cells,colCat,widths);
       });
     }
