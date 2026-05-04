@@ -807,7 +807,11 @@ function renderCC(con, parsed, meta){
 
     // AV% base = valor da linha 01T (Receita Bruta), ou primeiro cat com valor
     const rb01T=cats.find(c=>/01T/.test(c));
-    const avBase=Math.abs((rowBycat[rb01T]||{valor:0}).valor)||1;
+    const rb01TRow=rowBycat[rb01T]||{valor:0,cc:{}};
+    // AV%: cada coluna usa sua própria Receita Bruta como 100%
+    const avBaseTotal=Math.abs(rb01TRow.valor)||1;
+    const avBaseCC={};
+    cols.forEach(c=>{ avBaseCC[c]=Math.abs(rb01TRow.cc[c]||0)||1; });
 
     let h=`<div class="dre-outer">
       <div class="dre-scrollbar-track" id="cc-sbt"><div class="dre-scrollbar-thumb" id="cc-sbth"></div></div>
@@ -828,11 +832,11 @@ function renderCC(con, parsed, meta){
       const canCol=lv<=3; const isCol=collapsed.has(cat);
       const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._ccTog('${cat.replace(/'/g,"\\'")}',this)">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
       h+=`<tr class="${rc}${isHidden?' hrow':''}" data-ci="${i}"><td>${tg}${cat}</td><td>${fmt(r.valor)}</td>`;
-      if(showAV) h+=`<td class="avc">${(r.valor/avBase*100).toFixed(1)}%</td>`;
+      if(showAV) h+=`<td class="avc">${(r.valor/avBaseTotal*100).toFixed(1)}%</td>`;
       cols.forEach(c=>{
         const cv=r.cc[c]||0;
         h+=`<td>${fmt(cv)}</td>`;
-        if(showAV) h+=`<td class="avc">${(cv/avBase*100).toFixed(1)}%</td>`;
+        if(showAV) h+=`<td class="avc">${(cv/avBaseCC[c]*100).toFixed(1)}%</td>`;
       });
       h+=`</tr>`;
     });
@@ -1534,7 +1538,14 @@ function renderGer(con, parsed, meta, fonte){
         responsive:true,maintainAspectRatio:false,
         plugins:{
           legend:{display:true,labels:{font:{size:10},boxWidth:12,filter:item=>item.text!==''}},
-          tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+ctx.parsed.y.toFixed(1)+'%'}}
+          tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+ctx.parsed.y.toFixed(1)+'%'}},
+          datalabels:{
+            display:ctx=>ctx.datasetIndex===0, // only main line, not mean
+            align:'top', anchor:'top',
+            color:ctx=>ctx.chart.data.datasets[0].borderColor,
+            font:{size:9,weight:'700'},
+            formatter:v=>v==null?'':v.toFixed(1)+'%'
+          }
         },
         scales:{
           x:{ticks:{autoSkip:false,maxRotation:50,font:{size:10}},grid:{color:'rgba(0,0,0,0.04)'}},
@@ -1593,11 +1604,32 @@ function renderGer(con, parsed, meta, fonte){
     chartRefs.rv=new Chart(el('c-rv'),{
       type:'bar',
       data:{labels:lbs,datasets:[
-        {label:'Receita Bruta',data:K.recArr,backgroundColor:'rgba(30,79,170,.65)',borderRadius:3},
-        {label:'Result. Op.',data:K.opArr,backgroundColor:K.opArr.map(v=>v>=0?'rgba(21,128,61,.65)':'rgba(185,28,28,.65)'),borderRadius:3}
+        {label:'Receita Bruta',data:K.recArr,backgroundColor:'rgba(30,79,170,.65)',borderRadius:4},
+        {label:'Result. Op.',data:K.opArr,backgroundColor:K.opArr.map(v=>v>=0?'rgba(21,128,61,.65)':'rgba(185,28,28,.65)'),borderRadius:4}
       ]},
       options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:true,labels:{font:{size:10},boxWidth:9}}},
+        plugins:{
+          legend:{display:true,labels:{font:{size:10},boxWidth:9}},
+          datalabels:{
+            display:true,
+            anchor:ctx=>ctx.dataset.data[ctx.dataIndex]>=0?'end':'start',
+            align:ctx=>ctx.dataset.data[ctx.dataIndex]>=0?'start':'end',
+            color:'#fff',
+            borderRadius:4,
+            backgroundColor:ctx=>{
+              if(ctx.datasetIndex===0) return 'rgba(30,79,170,.85)';
+              return ctx.dataset.data[ctx.dataIndex]>=0?'rgba(21,128,61,.85)':'rgba(185,28,28,.85)';
+            },
+            padding:{top:3,bottom:3,left:6,right:6},
+            font:{size:10,weight:'700'},
+            formatter:v=>{
+              if(v==null) return '';
+              const a=Math.abs(v);
+              const s=a>=1000000?(a/1000000).toFixed(1)+'M':a>=1000?'R$'+(a/1000).toFixed(0)+'k':'R$'+Math.round(a);
+              return (v<0?'-':'')+s;
+            }
+          }
+        },
         scales:scaleOptsBar}
     });
     S.charts.push(chartRefs.rv);
@@ -1610,7 +1642,10 @@ function renderGer(con, parsed, meta, fonte){
         {label:'Mg.Líq.',data:K.mlArr,borderColor:'#1e4faa',backgroundColor:'transparent',tension:0.3,pointRadius:2,borderWidth:1.5}
       ]},
       options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:true,labels:{font:{size:10},boxWidth:9}}},
+        plugins:{
+          legend:{display:true,labels:{font:{size:10},boxWidth:9}},
+          datalabels:{display:false}
+        },
         scales:scaleOpts}
     });
     S.charts.push(chartRefs.cm);
