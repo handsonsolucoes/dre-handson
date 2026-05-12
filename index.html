@@ -1361,7 +1361,7 @@ function renderGer(con, parsed, meta, fonte){
       <div class="kpi" id="kpi-rl"><div class="kpi-label">Receita Líquida</div><div class="kpi-value" id="kv-rl">—</div><div class="kpi-sub" id="ks-rl">—</div></div>
       <div class="kpi" id="kpi-cmv"><div class="kpi-label">% CMV</div><div class="kpi-value" id="kv-cmv">—</div><div class="kpi-sub" id="ks-cmv">—</div></div>
       <div class="kpi" id="kpi-imp"><div class="kpi-label">% Impostos</div><div class="kpi-value" id="kv-imp">—</div><div class="kpi-sub">Sobre receita bruta</div></div>
-      <div class="kpi" id="kpi-lb"><div class="kpi-label">Lucro Bruto</div><div class="kpi-value" id="kv-lb">—</div><div class="kpi-sub" id="ks-lb">—</div></div>
+      <div class="kpi" id="kpi-lb"><div class="kpi-label">Mg. Contribuição</div><div class="kpi-value" id="kv-lb">—</div><div class="kpi-sub" id="ks-lb">—</div></div>
       <div class="kpi" id="kpi-op"><div class="kpi-label">Result. Operacional</div><div class="kpi-value" id="kv-op">—</div><div class="kpi-sub" id="ks-op">—</div></div>
       <div class="kpi" id="kpi-lq"><div class="kpi-label">Resultado Líquido</div><div class="kpi-value" id="kv-lq">—</div><div class="kpi-sub" id="ks-lq">—</div></div>
       <div class="kpi" id="kpi-med"><div class="kpi-label">Receita Média/Mês</div><div class="kpi-value bl" id="kv-med">—</div><div class="kpi-sub" id="ks-med">—</div></div>
@@ -1382,6 +1382,10 @@ function renderGer(con, parsed, meta, fonte){
           <button class="btn-tog" id="btn-acum" onclick="W._gAcum()">Acumulado</button>
           <button class="btn-tog" id="btn-av" onclick="W._gAV()">A. Vertical %</button>
           <button class="btn-tog" id="btn-ah" onclick="W._gAH()">A. Horizontal %</button>
+          <label class="btn-tog" style="cursor:pointer;background:var(--ac);color:#fff;border-color:var(--ac)" title="Importar Excel com edições (Categoria, Mês, Valor)">
+            ↑ Importar Edições
+            <input type="file" accept=".xlsx,.xls" style="display:none" onchange="W._importEdits(event)">
+          </label>
         </div>
       </div>
       <div class="pills" id="ger-pills">
@@ -1413,7 +1417,7 @@ function renderGer(con, parsed, meta, fonte){
     setKV('kv-imp', K.pImp.toFixed(1)+'%', '');
     setKV('kv-lb',  fK(K.allLB), K.allLB>=0?'gn':'rd');
     setKC('kpi-lb', K.allLB>=0?'gn':'rd');
-    setKS('ks-lb',  'Mg. Bruta: '+K.mBr.toFixed(1)+'%');
+    setKS('ks-lb',  'Mg. Contrib.: '+K.mBr.toFixed(1)+'%');
     setKV('kv-op',  fK(K.allOP), K.allOP>=0?'gn':'rd');
     setKC('kpi-op', K.allOP>=0?'gn':'rd');
     setKS('ks-op',  'Mg. Op.: '+K.mOp.toFixed(1)+'%');
@@ -1481,7 +1485,16 @@ function renderGer(con, parsed, meta, fonte){
   /* We only need to initialize the chart objects now, using the data from buildT's K */
 
   // Enable crisp rendering on high-DPI screens
-  Chart.defaults.devicePixelRatio = window.devicePixelRatio || 2;
+  // Force high-DPI rendering for crisp charts
+  Chart.defaults.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 4);
+  // Override Chart.js canvas creation to add willReadFrequently hint
+  const _origInit = Chart.prototype.initialize;
+  Chart.prototype.initialize = function(config){
+    if(this.canvas){
+      try { this.canvas.getContext('2d', {willReadFrequently:true}); } catch(e){}
+    }
+    _origInit.call(this, config);
+  };
 
   const datalabelPlugin = {
     id:'discreteLabels',
@@ -1731,6 +1744,96 @@ function renderGer(con, parsed, meta, fonte){
   };
   W._gAV=()=>{ showAV=!showAV; el('btn-av').classList.toggle('on',showAV); buildT(); };
   W._gAH=()=>{ showAH=!showAH; el('btn-ah').classList.toggle('on',showAH); buildT(); };
+
+  // ── Import Edits from Excel ──────────────────────────────────────────────────
+  // Excel format: columns "Categoria" | "Mês" | "Valor"
+  // Month names accepted: Janeiro, Fevereiro, Março, Abril, Maio, Junho,
+  //                       Julho, Agosto, Setembro, Outubro, Novembro, Dezembro
+  //                       (or abbreviated: Jan, Fev, Mar, Abr, Mai, Jun,
+  //                                        Jul, Ago, Set, Out, Nov, Dez)
+  //                       Also accepts "Mês/Ano" like "Jan/2026"
+  W._importEdits=(evt)=>{
+    const file=evt.target.files[0]; if(!file) return;
+    evt.target.value=''; // allow re-importing same file
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const wb=XLSX.read(e.target.result,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+        if(!rows.length){ toast('Planilha vazia.','error'); return; }
+
+        // Normalize month names to period format "Mmm/YYYY"
+        const MONTH_MAP={
+          'janeiro':'Jan','fevereiro':'Fev','março':'Mar','marco':'Mar',
+          'abril':'Abr','maio':'Mai','junho':'Jun',
+          'julho':'Jul','agosto':'Ago','setembro':'Set',
+          'outubro':'Out','novembro':'Nov','dezembro':'Dez',
+          'jan':'Jan','fev':'Fev','mar':'Mar','abr':'Abr','mai':'Mai','jun':'Jun',
+          'jul':'Jul','ago':'Ago','set':'Set','out':'Out','nov':'Nov','dez':'Dez'
+        };
+        function normPeriod(raw){
+          const s=String(raw).trim();
+          // Already in "Jan/2026" format
+          if(/^[A-Za-záéíóúâêãõç]{3}\/\d{4}$/i.test(s)) return s.charAt(0).toUpperCase()+s.slice(1,3).toLowerCase()+s.slice(3);
+          // "Jan/26" short year
+          const m1=s.match(/^([A-Za-záéíóúãõç]+)\/(\d{2})$/i);
+          if(m1){const k=MONTH_MAP[m1[1].toLowerCase()]; return k?k+'/20'+m1[2]:null;}
+          // Full month name with optional year: "Janeiro" or "Janeiro 2026" or "Janeiro/2026"
+          const m2=s.match(/^([A-Za-záéíóúâêãõç]+)[\s\/]?(\d{4})?$/i);
+          if(m2){const k=MONTH_MAP[m2[1].toLowerCase()];
+            if(k){
+              // Find matching period in loaded periods list
+              const yr=m2[2]||'';
+              const match=periods.find(p=>p.startsWith(k)&&(yr===''||p.endsWith(yr)));
+              return match||k+(yr?'/'+yr:'');
+            }
+          }
+          return null;
+        }
+
+        let applied=0, skipped=[];
+        rows.forEach((row,ri)=>{
+          // Try to find columns case-insensitively
+          const keys=Object.keys(row);
+          const catKey=keys.find(k=>/^categoria/i.test(k));
+          const mesKey=keys.find(k=>/^m[eê]s/i.test(k));
+          const valKey=keys.find(k=>/^valor/i.test(k));
+          if(!catKey||!mesKey||!valKey){ skipped.push('Linha '+(ri+2)+': colunas não encontradas'); return; }
+          const cat=String(row[catKey]).trim();
+          const period=normPeriod(row[mesKey]);
+          const val=parseFloat(String(row[valKey]).replace(',','.'));
+          if(!cat||!period||isNaN(val)){ skipped.push('Linha '+(ri+2)+': dados inválidos (cat='+cat+', mês='+row[mesKey]+', val='+row[valKey]+')'); return; }
+          // Validate category exists
+          if(!cats.includes(cat)){ skipped.push('Linha '+(ri+2)+': categoria "'+cat+'" não encontrada na DRE'); return; }
+          // Validate period exists
+          if(!periods.includes(period)){ skipped.push('Linha '+(ri+2)+': período "'+period+'" não encontrado (calculado: '+period+')'); return; }
+          // Apply: update byPeriod and store as override
+          if(!S.gerOverrides[period]) S.gerOverrides[period]={};
+          S.gerOverrides[period][cat]=val;
+          if(!byPeriod[period]) byPeriod[period]={};
+          byPeriod[period][cat]=val;
+          applied++;
+        });
+
+        if(applied>0){
+          saveState();
+          buildT();
+          toast(applied+' edição(ões) aplicada(s) com sucesso.','success');
+        } else {
+          toast('Nenhuma edição válida encontrada.','error');
+        }
+        if(skipped.length){
+          console.warn('Linhas ignoradas na importação:', skipped);
+          setTimeout(()=>toast(skipped.length+' linha(s) ignorada(s) — veja o console para detalhes.','error'),1500);
+        }
+      } catch(err){
+        console.error('Erro ao importar Excel:', err);
+        toast('Erro ao ler o arquivo: '+err.message,'error');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
   W._gTog=(cat,idx)=>{ if(collapsed.has(cat))collapsed.delete(cat); else collapsed.add(cat); buildT(); };
 
   function updateCMVLabel(){
@@ -2122,24 +2225,58 @@ async function exportPDF(type, cfg){
         {l:'Receita Líquida',v:fK(allRL),s:allRB?(allRL/allRB*100).toFixed(1)+'% da Bruta':'—'},
         {l:'% CMV',v:pCMV.toFixed(1)+'%',s:pCMV>55?'Acima do ideal':'Ok'},
         {l:'% Impostos',v:pImp.toFixed(1)+'%',s:'Sobre rec. bruta'},
-        {l:'Lucro Bruto',v:fK(allLB),s:'Mg Bruta: '+mBr.toFixed(1)+'%'},
+        {l:'Mg. Contribuição',v:fK(allLB),s:'Mg Contrib.: '+mBr.toFixed(1)+'%'},
         {l:'Result. Oper.',v:fK(allOP),s:'Mg Op.: '+mOp.toFixed(1)+'%'},
         {l:'Resultado Final',v:fK(allLQ),s:'Mg Final: '+mLiq.toFixed(1)+'%'},
         {l:'Rec. Média/Mês',v:fK(allRB/(mCols.length||1)),s:mCols.length+' meses'},
       ];
-      const kw=cW/4, kh=17;
+      // Dashboard-style KPI cards: white bg, accent top border, label/value/sub
+      const kw=cW/4, kh=22;
+      const KPI_ACCENT={
+        0:[13,42,94],   // Receita Bruta - blue (--ac)
+        1:[13,42,94],   // Receita Líquida
+        2:[185,28,28],  // % CMV - red
+        3:[92,64,10],   // % Impostos - amber
+        4:[21,128,61],  // Mg. Contribuição - green
+        5:[21,128,61],  // Result. Oper.
+        6:[21,128,61],  // Resultado Final
+        7:[184,146,42], // Rec. Média/Mês - gold
+      };
+      const KPI_VAL_COLOR={
+        0:[13,42,94], 1:null, 2:[185,28,28], 3:[146,64,14],
+        4:null, 5:null, 6:null, 7:[13,42,94]
+      };
       kpis.forEach((k,idx)=>{
-        if(idx===0||idx===4) chkY(kh+3);
-        const col=idx%4, row=Math.floor(idx/4), x=margin+col*kw, yy=y+row*(kh+3);
-        doc.setFillColor(248,250,252); doc.roundedRect(x,yy,kw-2,kh,1,1,'FD');
-        doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
-        doc.text(k.l.toUpperCase(),x+2,yy+4);
-        doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
-        doc.text(k.v,x+2,yy+10);
-        doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
-        doc.text(k.s,x+2,yy+14.5);
+        if(idx===0||idx===4) chkY(kh+4);
+        const col=idx%4, row=Math.floor(idx/4), x=margin+col*kw, yy=y+row*(kh+4);
+        // White card background with subtle shadow simulation (light gray border)
+        doc.setFillColor(255,255,255); 
+        doc.setDrawColor(210,215,225);
+        doc.setLineWidth(0.25);
+        doc.roundedRect(x,yy,kw-2,kh,1.5,1.5,'FD');
+        // Accent top border (3px colored stripe)
+        const ac=KPI_ACCENT[idx]||[184,146,42];
+        doc.setFillColor(ac[0],ac[1],ac[2]);
+        doc.roundedRect(x,yy,kw-2,1.5,0.5,0.5,'F');
+        // Label (uppercase, small, gray)
+        doc.setFontSize(6.5); doc.setFont('helvetica','bold'); doc.setTextColor(120,120,140);
+        doc.text(k.l.toUpperCase(),x+3,yy+6);
+        // Value (large, bold, colored)
+        const vc=KPI_VAL_COLOR[idx];
+        if(vc) doc.setTextColor(vc[0],vc[1],vc[2]); else {
+          // auto-color for values: negative=red, positive=green, neutral=dark
+          const numVal=parseFloat(k.v.replace(/[^0-9,.-]/g,'').replace(',','.'));
+          if(!isNaN(numVal)&&numVal<0) doc.setTextColor(185,28,28);
+          else if(!isNaN(numVal)&&numVal>0&&(idx===1||idx===4||idx===5||idx===6)) doc.setTextColor(21,128,61);
+          else doc.setTextColor(15,23,42);
+        }
+        doc.setFontSize(11); doc.setFont('helvetica','bold');
+        doc.text(k.v,x+3,yy+14);
+        // Sub text (small, light gray)
+        doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(144,144,160);
+        doc.text(k.s,x+3,yy+19.5);
       });
-      y+=2*(kh+3)+8;
+      y+=2*(kh+4)+10;
 
       setMsg('Capturando gráficos…',''); setBar(30);
       secTit('Evolução das Margens (%)');
