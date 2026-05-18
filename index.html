@@ -691,7 +691,23 @@ function parseGer(rows){
   return{cats,byPeriod,totals,periods};
 }
 
-function pf(v){ const n=parseFloat(String(v).replace(',','.')); return isNaN(n)?0:n; }
+function pf(v){
+  if(typeof v==='number') return isFinite(v)?v:0;
+  let s=String(v??'').trim();
+  if(!s) return 0;
+  s=s.replace(/R\$|\s/g,'');
+  const hasComma=s.includes(','), hasDot=s.includes('.');
+  if(hasComma && hasDot){
+    // pt-BR: 1.234.567,89
+    if(s.lastIndexOf(',')>s.lastIndexOf('.')) s=s.replace(/\./g,'').replace(',','.');
+    // en-US: 1,234,567.89
+    else s=s.replace(/,/g,'');
+  }else if(hasComma){
+    s=s.replace(',','.');
+  }
+  const n=parseFloat(s);
+  return isNaN(n)?0:n;
+}
 function fmt(v){
   if(v===0)return'<span style="color:var(--tx3)">—</span>';
   const n=v<0;
@@ -938,7 +954,11 @@ function renderCC(con, parsed, meta){
 function renderDFC(con, parsed, meta){
   const{cats,byPeriod,periods}=parsed;
   const groupMap=buildGroupMap(cats); const collapsed=new Set();
-  let isAcum=true, selP=new Set(periods), showAV=false, showAH=false, lastI=-1;
+
+  // DFC: por padrão mostra todos os meses separadamente. O botão Acumulado
+  // consolida a seleção em uma única coluna Total.
+  let isAcum=false, selP=new Set(periods), showAV=false, showAH=false, lastI=-1;
+
   function raw(period,cat){ return (byPeriod[period]||{})[cat]||0; }
   function childSum(period,cat,lv){
     const idx=cats.indexOf(cat); if(idx<0)return raw(period,cat);
@@ -954,68 +974,130 @@ function renderDFC(con, parsed, meta){
     if(lv===0){ let s=0; for(let i=0;i<idx;i++){ if(catLevel(cats[i])===1)s+=agg(period,cats[i]); } return s; }
     return childSum(period,cat,lv);
   }
-  function baseEntrada(period){
-    const c01T=cats.find(c=>/01T/.test(c));
-    if(c01T)return Math.abs(agg(period,c01T))||1;
-    let entradas=0; cats.forEach(c=>{ if(catLevel(c)===1){ const v=agg(period,c); if(v>0)entradas+=v; }});
-    return Math.abs(entradas)||1;
+
+  function isReceitaOperacional(cat){
+    return /^\s*01\s+receitas?\s+operacionais?/i.test(cat) || /receitas?\s+operacionais?/i.test(cat);
   }
+  function receitaOperacionalCat(){
+    return cats.find(c=>/^\s*01\s+receitas?\s+operacionais?/i.test(c)) || cats.find(isReceitaOperacional) || cats.find(c=>/^\s*01\b/i.test(c));
+  }
+  function baseReceitaOperacional(period){
+    const c=receitaOperacionalCat();
+    if(c){ const v=agg(period,c); return Math.abs(v)||0; }
+    let entradas=0; cats.forEach(c=>{ if(catLevel(c)===1){ const v=agg(period,c); if(v>0)entradas+=v; }});
+    return Math.abs(entradas)||0;
+  }
+  function totalValor(cat,ms){ return ms.reduce((s,m)=>s+agg(m,cat),0); }
+  function totalBaseReceita(ms){ return ms.reduce((s,m)=>s+baseReceitaOperacional(m),0); }
+  function avFmt(valor,base){ return base?`${(valor/base*100).toFixed(1)}%`:'—'; }
+  function ahFmt(atual,anterior){
+    if(!anterior)return'<td class="ahc" style="color:var(--tx3)">—</td>';
+    const d=(atual-anterior)/Math.abs(anterior)*100;
+    return`<td class="ahc ${d>=0?'ahp':'ahn'}">${d.toFixed(1)}%</td>`;
+  }
+
   function compute(ps){
     const ms=[...ps].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
     let entradas=0, saidas=0;
-    cats.forEach(c=>{ if(catLevel(c)===1){ const v=ms.reduce((s,p)=>s+agg(p,c),0); if(v>=0)entradas+=v; else saidas+=v; }});
+    cats.forEach(c=>{ if(catLevel(c)===1){ const v=totalValor(c,ms); if(v>=0)entradas+=v; else saidas+=v; }});
     const saldo=entradas+saidas;
-    const saldoFinal=cats.filter(c=>catLevel(c)===0).pop();
-    const final=saldoFinal?ms.reduce((s,p)=>s+agg(p,saldoFinal),0):saldo;
     const lbs=ms.map(p=>p.replace('/20','/'));
     const entArr=ms.map(p=>{ let t=0; cats.forEach(c=>{ if(catLevel(c)===1){ const v=agg(p,c); if(v>0)t+=v; }}); return t; });
     const saiArr=ms.map(p=>{ let t=0; cats.forEach(c=>{ if(catLevel(c)===1){ const v=agg(p,c); if(v<0)t+=v; }}); return t; });
     const salArr=entArr.map((v,i)=>v+saiArr[i]);
-    return{entradas,saidas,saldo,final,lbs,entArr,saiArr,salArr,n:ms.length||1};
+    return{entradas,saidas,saldo,lbs,entArr,saiArr,salArr,n:ms.length||1};
   }
-  let chartReady=false;
+
   function updateCards(K){
     const set=(id,txt,cls)=>{const e=el(id); if(!e)return; e.textContent=txt; e.className='kpi-value'+(cls?' '+cls:'');};
-    set('dfc-kv-ent',fK(K.entradas),'gn'); set('dfc-kv-sai',fK(K.saidas),'rd');
-    set('dfc-kv-sal',fK(K.saldo),K.saldo>=0?'gn':'rd'); set('dfc-kv-fin',fK(K.final),K.final>=0?'gn':'rd');
-    const e=el('dfc-kv-med'); if(e)e.textContent=fK(K.saldo/K.n);
+    set('dfc-kv-ent',fK(K.entradas),'gn');
+    set('dfc-kv-sai',fK(Math.abs(K.saidas)),'rd');
+    set('dfc-kv-sal',fK(K.saldo),K.saldo>=0?'gn':'rd');
   }
   function createChart(K){
     if(typeof Chart==='undefined')return;
     killCharts();
     const ctx=el('c-dfc-flow'); if(!ctx)return;
-    const ch=new Chart(ctx,{type:'bar',data:{labels:K.lbs,datasets:[{label:'Entradas',data:K.entArr},{label:'Saídas',data:K.saiArr},{label:'Saldo',data:K.salArr,type:'line',tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},datalabels:{display:false}},scales:{y:{ticks:{callback:v=>fK(v)}}}}});
+    const ch=new Chart(ctx,{type:'bar',data:{labels:K.lbs,datasets:[{label:'Receitas',data:K.entArr},{label:'Despesas',data:K.saiArr},{label:'Saldo',data:K.salArr,type:'line',tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},datalabels:{display:false}},scales:{y:{ticks:{callback:v=>fK(v)}}}}});
     S.charts.push(ch);
   }
+  function selectedMonths(){ return [...selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b)); }
+  function ensureSelection(){ if(!selP.size && periods.length) selP.add(periods[0]); }
+  function updateControls(){
+    document.querySelectorAll('#dfc-pills .pill').forEach(x=>x.classList.toggle('active',selP.has(x.dataset.p)));
+    const all=el('dfc-btn-all'); if(all) all.classList.toggle('on',selP.size===periods.length);
+    const acum=el('dfc-btn-acum'); if(acum) acum.classList.toggle('on-gold',isAcum);
+    const av=el('dfc-btn-av'); if(av) av.classList.toggle('on',showAV);
+    const ah=el('dfc-btn-ah'); if(ah) ah.classList.toggle('on',showAH);
+  }
+  function escCat(cat){ return cat.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\//g,'\\/'); }
+
   function buildT(){
-    const ms=[...selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
-    S.dfcView={selP,isAcum,showAV,showAH};
-    const K=compute(selP); updateCards(K); if(chartReady) createChart(K); else {createChart(K); chartReady=true;}
-    const fb=el('dfc-active-filters'); if(fb){fb.innerHTML=`<span style="font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-right:4px">Filtros:</span>`+(selP.size===periods.length?'<span class="badge bg-bl">Acumulado</span>':ms.map(p=>`<span class="badge bg-bl">${p}</span>`).join(''));}
+    ensureSelection();
+    updateControls();
+    const ms=selectedMonths();
+    S.dfcView={selP:new Set(selP),isAcum,showAV,showAH};
+    const K=compute(selP); updateCards(K); createChart(K);
+    const fb=el('dfc-active-filters');
+    if(fb){
+      const modo=isAcum?'<span class="badge bg-bl">Acumulado</span>':'<span class="badge bg-gn">Mês a mês</span>';
+      fb.innerHTML=`<span style="font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-right:4px">Filtros:</span>${modo}`+ms.map(p=>`<span class="badge bg-bl">${p}</span>`).join('');
+    }
+
     let h=`<div class="dre-outer"><div class="dre-scrollbar-track" id="dfc-sbt"><div class="dre-scrollbar-thumb" id="dfc-sbth"></div></div><div class="dre-scroll" id="dfc-scr"><table class="dre-t"><thead><tr><th class="tl">Categoria</th>`;
-    if(isAcum){h+=`<th>Total (R$)</th>`; if(showAV)h+=`<th style="color:var(--pu)">A.V.%</th>`;}
-    else{ms.forEach((m,i)=>{h+=`<th>${m}</th>`; if(showAV)h+=`<th style="color:var(--pu)">A.V.%</th>`; if(showAH&&i>0)h+=`<th style="color:var(--am)">A.H.%</th>`;}); if(ms.length>1)h+=`<th>Total</th>`;}
+    if(isAcum){
+      h+=`<th>Total (R$)</th>`;
+      if(showAV)h+=`<th style="color:var(--pu)">A.V. Total %</th>`;
+    }else{
+      ms.forEach((m,i)=>{ h+=`<th>${m}</th>`; if(showAV)h+=`<th style="color:var(--pu)">A.V.%</th>`; if(showAH&&i>0)h+=`<th style="color:var(--am)">A.H.%</th>`; });
+      h+=`<th>Total (R$)</th>`;
+      if(showAV)h+=`<th style="color:var(--pu)">A.V. Total %</th>`;
+    }
     h+=`</tr></thead><tbody>`;
+
+    const baseTotal=totalBaseReceita(ms);
     cats.forEach((cat,i)=>{
       const rc=rClass(cat), lv=catLevel(cat); let hide=false,ci=i;
       for(let d=0;d<8;d++){const pp=groupMap[ci];if(!pp)break;if(collapsed.has(pp)){hide=true;break;}ci=cats.indexOf(pp);if(ci<0)break;}
       const canCol=lv<=3,isCol=collapsed.has(cat);
-      const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._dfcTog('${cat.replace(/'/g,"\\'").replace(/\//g,'\\/')}',${i})">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
+      const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._dfcTog('${escCat(cat)}',${i})">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
       h+=`<tr class="${rc}${hide?' hrow':''}" data-dfci="${i}"><td>${tg}${cat}</td>`;
-      if(isAcum){ const tv=ms.reduce((s,m)=>s+agg(m,cat),0), b=ms.reduce((s,m)=>s+baseEntrada(m),0)||1; h+=`<td>${fmt(tv)}</td>`; if(showAV)h+=`<td class="avc">${(tv/b*100).toFixed(1)}%</td>`; }
-      else{ let total=0; ms.forEach((m,mi)=>{const mv=agg(m,cat); total+=mv; h+=`<td>${fmt(mv)}</td>`; if(showAV)h+=`<td class="avc">${(mv/baseEntrada(m)*100).toFixed(1)}%</td>`; if(showAH&&mi>0){const pv=agg(ms[mi-1],cat); h+=pv?`<td class="ahc ${((mv-pv)>=0)?'ahp':'ahn'}">${((mv-pv)/Math.abs(pv)*100).toFixed(1)}%</td>`:`<td class="ahc" style="color:var(--tx3)">—</td>`; }}); if(ms.length>1)h+=`<td>${fmt(total)}</td>`; }
+      if(isAcum){
+        const tv=totalValor(cat,ms);
+        h+=`<td>${fmt(tv)}</td>`;
+        if(showAV)h+=`<td class="avc">${avFmt(tv,baseTotal)}</td>`;
+      }else{
+        ms.forEach((m,mi)=>{
+          const mv=agg(m,cat); const b=baseReceitaOperacional(m);
+          h+=`<td>${fmt(mv)}</td>`;
+          if(showAV)h+=`<td class="avc">${avFmt(mv,b)}</td>`;
+          if(showAH&&mi>0)h+=ahFmt(mv,agg(ms[mi-1],cat));
+        });
+        const tv=totalValor(cat,ms);
+        h+=`<td>${fmt(tv)}</td>`;
+        if(showAV)h+=`<td class="avc">${avFmt(tv,baseTotal)}</td>`;
+      }
       h+=`</tr>`;
     });
     h+=`</tbody></table></div></div>`; el('dfc-ta').innerHTML=h; initScrollSync('dfc-sbt','dfc-sbth','dfc-scr');
   }
+
   const fb=meta?`<div class="file-bar"><span>📄</span><div class="file-bar-name">${meta.name}</div><div class="file-bar-date">${meta.date}</div><button class="btn btn-sm" style="margin-left:auto;background:var(--rdb);color:var(--rd);border:1px solid rgba(185,28,28,.2)" onclick="deleteData('dfc')">🗑 Excluir</button><button class="btn btn-sm btn-outline" onclick="openUp('dfc')">↩ Substituir</button></div>`:'';
-  con.innerHTML=`${fb}<div id="dfc-active-filters" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 14px;background:var(--sf);border:1px solid var(--bd2);border-radius:var(--rs);box-shadow:var(--sh)"></div><div class="kpi-grid"><div class="kpi kpi-gn"><div class="kpi-label">Entradas de Caixa</div><div class="kpi-value gn" id="dfc-kv-ent">—</div><div class="kpi-sub">Somatório positivo</div></div><div class="kpi kpi-rd"><div class="kpi-label">Saídas de Caixa</div><div class="kpi-value rd" id="dfc-kv-sai">—</div><div class="kpi-sub">Somatório negativo</div></div><div class="kpi"><div class="kpi-label">Saldo do Período</div><div class="kpi-value" id="dfc-kv-sal">—</div><div class="kpi-sub">Entradas + saídas</div></div><div class="kpi"><div class="kpi-label">Saldo Final</div><div class="kpi-value" id="dfc-kv-fin">—</div><div class="kpi-sub">Último totalizador</div></div><div class="kpi"><div class="kpi-label">Saldo Médio/Mês</div><div class="kpi-value bl" id="dfc-kv-med">—</div><div class="kpi-sub">Média do saldo</div></div></div><div class="chart-card" style="margin-bottom:14px"><div class="chart-title">Entradas, Saídas e Saldo de Caixa</div><div style="position:relative;height:240px"><canvas id="c-dfc-flow"></canvas></div></div><div class="filter-card"><div class="filter-row"><span class="filter-label">Período <span class="filter-hint">— Shift+clique para múltiplos</span></span><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-tog on" id="dfc-btn-acum" onclick="W._dfcAcum()">Acumulado</button><button class="btn-tog" id="dfc-btn-av" onclick="W._dfcAV()">A. Vertical %</button><button class="btn-tog" id="dfc-btn-ah" onclick="W._dfcAH()">A. Horizontal %</button></div></div><div class="pills" id="dfc-pills">${periods.map((p,i)=>`<span class="pill active" data-i="${i}" data-p="${p}" onclick="W._dfcP(event,'${p}',${i})">${p}</span>`).join('')}</div></div><div id="dfc-ta"></div>`;
-  buildT();
-  W._dfcP=(e,p,i)=>{ if(e.shiftKey&&lastI>=0){const lo=Math.min(lastI,i),hi=Math.max(lastI,i); periods.slice(lo,hi+1).forEach(x=>selP.add(x));} else if(!e.shiftKey) selP=selP.has(p)&&selP.size>1?new Set([...selP].filter(x=>x!==p)):new Set([p]); else selP.has(p)&&selP.size>1?selP.delete(p):selP.add(p); lastI=i; isAcum=selP.size===periods.length; el('dfc-btn-acum').classList.toggle('on',isAcum); document.querySelectorAll('#dfc-pills .pill').forEach(x=>x.classList.toggle('active',selP.has(x.dataset.p))); buildT(); };
-  W._dfcAcum=()=>{ isAcum=true; selP=new Set(periods); el('dfc-btn-acum').classList.add('on'); document.querySelectorAll('#dfc-pills .pill').forEach(x=>x.classList.add('active')); buildT(); };
-  W._dfcAV=()=>{ showAV=!showAV; el('dfc-btn-av').classList.toggle('on',showAV); buildT(); };
-  W._dfcAH=()=>{ showAH=!showAH; el('dfc-btn-ah').classList.toggle('on',showAH); buildT(); };
+  con.innerHTML=`${fb}<div id="dfc-active-filters" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 14px;background:var(--sf);border:1px solid var(--bd2);border-radius:var(--rs);box-shadow:var(--sh)"></div><div style="display:grid;grid-template-columns:minmax(170px,240px) minmax(300px,560px);gap:13px;margin-bottom:14px;align-items:stretch"><div class="kpi-grid" style="grid-template-columns:1fr;margin-bottom:0"><div class="kpi kpi-gn"><div class="kpi-label">Receitas Totais</div><div class="kpi-value gn" id="dfc-kv-ent">—</div></div><div class="kpi kpi-rd"><div class="kpi-label">Despesas Totais</div><div class="kpi-value rd" id="dfc-kv-sai">—</div></div><div class="kpi"><div class="kpi-label">Saldo</div><div class="kpi-value" id="dfc-kv-sal">—</div></div></div><div class="chart-card" style="margin-bottom:0;max-width:560px"><div class="chart-title">Receitas, Despesas e Saldo</div><div style="position:relative;height:170px"><canvas id="c-dfc-flow"></canvas></div></div></div><div class="filter-card"><div class="filter-row"><span class="filter-label">Período <span class="filter-hint">— meses separados por padrão; use Acumulado para consolidar a seleção</span></span><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-tog" id="dfc-btn-all" onclick="W._dfcAll()">Todos</button><button class="btn-tog" id="dfc-btn-clear" onclick="W._dfcClear()">Limpar</button><button class="btn-tog" id="dfc-btn-acum" onclick="W._dfcAcum()">Acumulado</button><button class="btn-tog" id="dfc-btn-av" onclick="W._dfcAV()">A. Vertical %</button><button class="btn-tog" id="dfc-btn-ah" onclick="W._dfcAH()">A. Horizontal %</button></div></div><div class="pills" id="dfc-pills">${periods.map((p,i)=>`<span class="pill active" data-i="${i}" data-p="${p}" onclick="W._dfcP(event,'${p}',${i})">${p}</span>`).join('')}</div></div><div id="dfc-ta"></div>`;
+
+  W._dfcP=(e,p,i)=>{
+    if(e.shiftKey&&lastI>=0){const lo=Math.min(lastI,i),hi=Math.max(lastI,i); periods.slice(lo,hi+1).forEach(x=>selP.add(x));}
+    else { if(selP.has(p)&&selP.size>1)selP.delete(p); else selP.add(p); }
+    lastI=i; buildT();
+  };
+  W._dfcAll=()=>{ selP=new Set(periods); buildT(); };
+  W._dfcClear=()=>{ selP=new Set([periods[0]].filter(Boolean)); buildT(); };
+  W._dfcAcum=()=>{ isAcum=!isAcum; buildT(); };
+  W._dfcAV=()=>{ showAV=!showAV; buildT(); };
+  W._dfcAH=()=>{ showAH=!showAH; buildT(); };
   W._dfcTog=(cat,idx)=>{ if(collapsed.has(cat))collapsed.delete(cat); else collapsed.add(cat); buildT(); };
+
+  buildT();
 }
 
 /* ═══════════════════════ RENDER GERENCIAL ═══════════════════════ */
@@ -2536,7 +2618,7 @@ async function exportPDF(type, cfg){
     if(type==='dfc'){
       const p=S.parsed.dfc; if(!p) throw new Error('Dados não encontrados');
       const{cats,byPeriod,periods}=p;
-      const selPer=cfg.isAcum?periods:(cfg.selP||periods).filter(Boolean);
+      const selPer=(cfg.selP||periods).filter(Boolean);
       const mCols=selPer.length?selPer:periods;
       function dRaw(period,cat){ return (byPeriod[period]||{})[cat]||0; }
       function dChild(period,cat,lv){
@@ -2547,21 +2629,23 @@ async function exportPDF(type, cfg){
         return f?t:dRaw(period,cat);
       }
       function dAgg(period,cat){ const lv=catLevel(cat), idx=cats.indexOf(cat); if(lv===0){let s=0; for(let i=0;i<idx;i++){if(catLevel(cats[i])===1)s+=dAgg(period,cats[i]);} return s;} return dChild(period,cat,lv); }
-      function dBase(period){const c01T=cats.find(c=>/01T/.test(c)); if(c01T)return Math.abs(dAgg(period,c01T))||1; let e=0; cats.forEach(c=>{if(catLevel(c)===1){const v=dAgg(period,c); if(v>0)e+=v;}}); return Math.abs(e)||1;}
-      let entradas=0,saidas=0; cats.forEach(c=>{if(catLevel(c)===1){const v=mCols.reduce((s,m)=>s+dAgg(m,c),0); if(v>=0)entradas+=v; else saidas+=v;}});
-      const saldo=entradas+saidas; const finalCat=cats.filter(c=>catLevel(c)===0).pop(); const final=finalCat?mCols.reduce((s,m)=>s+dAgg(m,finalCat),0):saldo;
+      function dBase(period){const c01=cats.find(c=>/^\s*01\s+receitas?\s+operacionais?/i.test(c))||cats.find(c=>/receitas?\s+operacionais?/i.test(c))||cats.find(c=>/^\s*01\b/i.test(c)); if(c01)return Math.abs(dAgg(period,c01))||0; let e=0; cats.forEach(c=>{if(catLevel(c)===1){const v=dAgg(period,c); if(v>0)e+=v;}}); return Math.abs(e)||0;}
+      function dTotal(cat){return mCols.reduce((s,m)=>s+dAgg(m,cat),0);}
+      const dBaseTotal=mCols.reduce((s,m)=>s+dBase(m),0);
+      let entradas=0,saidas=0; cats.forEach(c=>{if(catLevel(c)===1){const v=dTotal(c); if(v>=0)entradas+=v; else saidas+=v;}});
+      const saldo=entradas+saidas;
       secTit('Resumo do Fluxo de Caixa');
-      const kpis=[['Entradas',fK(entradas)],['Saídas',fK(saidas)],['Saldo do Período',fK(saldo)],['Saldo Final',fK(final)]];
-      const kw=cW/4,kh=20; kpis.forEach((k,idx)=>{const x=margin+idx*kw; doc.setFillColor(255,255,255); doc.setDrawColor(210,215,225); doc.roundedRect(x,y,kw-2,kh,1.5,1.5,'FD'); doc.setFillColor(idx===1?185:13,idx===1?28:42,idx===1?28:94); doc.roundedRect(x,y,kw-2,1.5,.5,.5,'F'); doc.setFontSize(6.5); doc.setFont('helvetica','bold'); doc.setTextColor(120,120,140); doc.text(k[0].toUpperCase(),x+3,y+6); doc.setFontSize(11); doc.setTextColor(idx===1?185:13,idx===1?28:42,idx===1?28:94); doc.text(k[1],x+3,y+14);}); y+=kh+10;
-      secTit('Demonstrativo de Fluxo de Caixa — '+(mCols.length===periods.length?'Acumulado':mCols.join(', ')));
+      const kpis=[['Receitas Totais',fK(entradas)],['Despesas Totais',fK(Math.abs(saidas))],['Saldo',fK(saldo)]];
+      const kw=cW/3,kh=20; kpis.forEach((k,idx)=>{const x=margin+idx*kw; doc.setFillColor(255,255,255); doc.setDrawColor(210,215,225); doc.roundedRect(x,y,kw-2,kh,1.5,1.5,'FD'); doc.setFillColor(idx===1?185:13,idx===1?28:42,idx===1?28:94); doc.roundedRect(x,y,kw-2,1.5,.5,.5,'F'); doc.setFontSize(6.5); doc.setFont('helvetica','bold'); doc.setTextColor(120,120,140); doc.text(k[0].toUpperCase(),x+3,y+6); doc.setFontSize(11); doc.setTextColor(idx===1?185:13,idx===1?28:42,idx===1?28:94); doc.text(k[1],x+3,y+14);}); y+=kh+10;
+      secTit('Demonstrativo de Fluxo de Caixa — '+(cfg.isAcum?'Acumulado':'Mês a mês'));
       const showAVpdf=!!cfg.showAV, showAHpdf=!!cfg.showAH;
-      const colCat=88; let dataCols=cfg.isAcum?1+(showAVpdf?1:0):mCols.length*(1+(showAVpdf?1:0))+(showAHpdf?Math.max(0,mCols.length-1):0)+(mCols.length>1?1:0);
+      const colCat=88; let dataCols=cfg.isAcum?1+(showAVpdf?1:0):mCols.length*(1+(showAVpdf?1:0))+(showAHpdf?Math.max(0,mCols.length-1):0)+1+(showAVpdf?1:0);
       const colW=(cW-colCat)/Math.max(dataCols,1);
       doc.setFillColor(236,237,242); doc.rect(margin,y,cW,6,'F'); doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(82,82,92); doc.text('CATEGORIA',margin+2,y+4.5); let hx=margin+colCat;
-      if(cfg.isAcum){ doc.text('TOTAL',hx+colW-1,y+4.5,{align:'right'}); hx+=colW; if(showAVpdf){doc.text('AV%',hx+colW-1,y+4.5,{align:'right'});} }
-      else{ mCols.forEach((m,i)=>{doc.text(m,hx+colW-1,y+4.5,{align:'right'});hx+=colW;if(showAVpdf){doc.text('AV%',hx+colW-1,y+4.5,{align:'right'});hx+=colW;}if(showAHpdf&&i>0){doc.text('AH%',hx+colW-1,y+4.5,{align:'right'});hx+=colW;}}); if(mCols.length>1)doc.text('TOTAL',hx+colW-1,y+4.5,{align:'right'});}
+      if(cfg.isAcum){ doc.text('TOTAL',hx+colW-1,y+4.5,{align:'right'}); hx+=colW; if(showAVpdf){doc.text('AV% TOTAL',hx+colW-1,y+4.5,{align:'right'});} }
+      else{ mCols.forEach((m,i)=>{doc.text(m,hx+colW-1,y+4.5,{align:'right'});hx+=colW;if(showAVpdf){doc.text('AV%',hx+colW-1,y+4.5,{align:'right'});hx+=colW;}if(showAHpdf&&i>0){doc.text('AH%',hx+colW-1,y+4.5,{align:'right'});hx+=colW;}}); doc.text('TOTAL',hx+colW-1,y+4.5,{align:'right'}); hx+=colW; if(showAVpdf){doc.text('AV% TOTAL',hx+colW-1,y+4.5,{align:'right'});} }
       y+=6.5;
-      cats.forEach(cat=>{ const cells=[]; if(cfg.isAcum){const tv=mCols.reduce((s,m)=>s+dAgg(m,cat),0), b=mCols.reduce((s,m)=>s+dBase(m),0)||1; cells.push(fmtPdf(tv)); if(showAVpdf)cells.push((tv/b*100).toFixed(1)+'%');} else {let total=0; mCols.forEach((m,i)=>{const v=dAgg(m,cat); total+=v; cells.push(fmtPdf(v)); if(showAVpdf)cells.push((v/dBase(m)*100).toFixed(1)+'%'); if(showAHpdf&&i>0){const pv=dAgg(mCols[i-1],cat); cells.push(pv?((v-pv)/Math.abs(pv)*100).toFixed(1)+'%':'—');}}); if(mCols.length>1)cells.push(fmtPdf(total));} paintRow(cat,cells,colCat,cells.map(()=>colW)); });
+      cats.forEach(cat=>{ const cells=[]; if(cfg.isAcum){const tv=dTotal(cat); cells.push(fmtPdf(tv)); if(showAVpdf)cells.push(dBaseTotal?(tv/dBaseTotal*100).toFixed(1)+'%':'—');} else {mCols.forEach((m,i)=>{const v=dAgg(m,cat), b=dBase(m); cells.push(fmtPdf(v)); if(showAVpdf)cells.push(b?(v/b*100).toFixed(1)+'%':'—'); if(showAHpdf&&i>0){const pv=dAgg(mCols[i-1],cat); cells.push(pv?((v-pv)/Math.abs(pv)*100).toFixed(1)+'%':'—');}}); const tv=dTotal(cat); cells.push(fmtPdf(tv)); if(showAVpdf)cells.push(dBaseTotal?(tv/dBaseTotal*100).toFixed(1)+'%':'—');} paintRow(cat,cells,colCat,cells.map(()=>colW)); });
     }
 
     /* ══════ CC ══════ */
