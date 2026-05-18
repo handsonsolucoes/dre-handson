@@ -263,6 +263,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
     DRE Gerencial
   </div>
+  <div class="tab" id="tab-dfc" onclick="switchTab('dfc')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M7 12h10M10 18h4"/><path d="M6 3v18M18 3v18"/></svg>
+    DFC Gerencial
+  </div>
 </div>
 
 <div class="main">
@@ -301,6 +305,24 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
       </div>
     </div>
     <div id="ger-con"><div class="empty"><div class="empty-icon">📈</div><div class="empty-title">Nenhum dado importado</div><div class="empty-sub">Clique em "Importar" para carregar a DRE Gerencial.</div></div></div>
+  </div>
+
+  <!-- DFC GER -->
+  <div class="page" id="page-dfc">
+    <div class="sec-head">
+      <div><div class="sec-title">DFC Gerencial</div><div class="sec-sub">Demonstrativo de Fluxo de Caixa com entradas, saídas, saldo do período e análise vertical/horizontal</div></div>
+      <div class="sec-actions">
+        <button class="btn btn-outline btn-sm" onclick="openUp('dfc')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Importar
+        </button>
+        <button class="btn btn-pdf" id="btn-pdf-dfc" onclick="openPdfFilter('dfc')" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Exportar PDF
+        </button>
+      </div>
+    </div>
+    <div id="dfc-con"><div class="empty"><div class="empty-icon">💵</div><div class="empty-title">Nenhum dado importado</div><div class="empty-sub">Clique em "Importar" para carregar o DFC Gerencial.</div></div></div>
   </div>
 
   <!-- ABA: FATURAMENTO & CMV -->
@@ -453,8 +475,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 const S = {
   charts:[],
   upType:null, upFile:null,
-  data:{ cc:null, ccMeta:null, ger:null, gerMeta:null },
-  parsed:{ cc:null, ger:null },
+  data:{ cc:null, ccMeta:null, ger:null, gerMeta:null, dfc:null, dfcMeta:null },
+  parsed:{ cc:null, ger:null, dfc:null },
   rateio:{ origens:[], receptores:[] },
   fonte:'interna',  // fonte fixa interna (aba externa removida)
   fatCMV:{},        // mantido apenas para compatibilidade interna
@@ -462,6 +484,7 @@ const S = {
   cmvCats:null,     // categorias selecionadas para o numerador do % CMV
   ccView:{ selP:null, selCC:'total', ccNames:[] },
   gerView:{ selP:null, isAcum:true, showAV:false, showAH:false },
+  dfcView:{ selP:null, isAcum:true, showAV:false, showAH:false },
 };
 
 
@@ -479,6 +502,7 @@ function switchTab(name){
   killCharts();
   if(name==='cc' && S.data.cc){ const p=parseRows(S.data.cc); if(p){S.parsed.cc=p; renderCC(el('cc-con'),p,S.data.ccMeta);} }
   if(name==='ger'&& S.data.ger){ const p=parseGer(S.data.ger); if(p){S.parsed.ger=p; renderGer(el('ger-con'),p,S.data.gerMeta,'interna');} }
+  if(name==='dfc'&& S.data.dfc){ const p=parseGer(S.data.dfc); if(p){S.parsed.dfc=p; renderDFC(el('dfc-con'),p,S.data.dfcMeta);} }
   if(name==='fat'){ renderFat(); }
 }
 
@@ -586,8 +610,8 @@ function updateFatPreview(){
 function openUp(type){
   S.upType=type; S.upFile=null;
   el('upfn').textContent=''; el('upf').value='';
-  const T={cc:'Importar DRE Centro de Custo',ger:'Importar DRE Gerencial'};
-  const I={cc:'Formato: <strong>Categoria | CCs | Valor | Ano | Mês</strong>.',ger:'Formato: <strong>Categoria | Jan/AAAA | … | Valor</strong>.'};
+  const T={cc:'Importar DRE Centro de Custo',ger:'Importar DRE Gerencial',dfc:'Importar DFC Gerencial'};
+  const I={cc:'Formato: <strong>Categoria | CCs | Valor | Ano | Mês</strong>.',ger:'Formato: <strong>Categoria | Jan/AAAA | … | Valor</strong>.',dfc:'Formato: <strong>Categoria | Jan/AAAA | … | Valor</strong>, igual ao modelo enviado para DFC.'};
   el('up-t').textContent=T[type]; el('up-i').innerHTML=I[type];
   const meta=S.data[type+'Meta'];
   el('up-file-status').innerHTML=meta
@@ -599,7 +623,7 @@ function deleteData(type){
   showConfirm('Excluir dados?','Os dados serão removidos da memória.',()=>{
     S.data[type]=null; S.data[type+'Meta']=null; S.parsed[type]=null;
     el('up-file-status').innerHTML='';
-    el(type==='cc'?'cc-con':'ger-con').innerHTML=emptyHtml('📥','Nenhum dado importado','Clique em Importar para carregar os dados.');
+    el(type==='cc'?'cc-con':(type==='dfc'?'dfc-con':'ger-con')).innerHTML=emptyHtml('📥','Nenhum dado importado','Clique em Importar para carregar os dados.');
     el('btn-pdf-'+type).disabled=true;
     if(type==='cc') el('btn-rateio-cfg').style.display='none';
     killCharts(); toast('Dados removidos.','success'); closeModal('mup');
@@ -907,6 +931,91 @@ function renderCC(con, parsed, meta){
       if(row)row.classList.toggle('hrow',hide);
     });
   };
+}
+
+
+/* ═══════════════════════ RENDER DFC GERENCIAL ═══════════════════════ */
+function renderDFC(con, parsed, meta){
+  const{cats,byPeriod,periods}=parsed;
+  const groupMap=buildGroupMap(cats); const collapsed=new Set();
+  let isAcum=true, selP=new Set(periods), showAV=false, showAH=false, lastI=-1;
+  function raw(period,cat){ return (byPeriod[period]||{})[cat]||0; }
+  function childSum(period,cat,lv){
+    const idx=cats.indexOf(cat); if(idx<0)return raw(period,cat);
+    let childLevel=-1;
+    for(let i=idx+1;i<cats.length;i++){ const clv=catLevel(cats[i]); if(clv<=lv)break; if(childLevel===-1)childLevel=clv; }
+    if(childLevel===-1)return raw(period,cat);
+    let t=0,found=false;
+    for(let i=idx+1;i<cats.length;i++){ const c=cats[i],clv=catLevel(c); if(clv<=lv)break; if(clv===childLevel){t+=agg(period,c);found=true;} }
+    return found?t:raw(period,cat);
+  }
+  function agg(period,cat){
+    const lv=catLevel(cat), idx=cats.indexOf(cat);
+    if(lv===0){ let s=0; for(let i=0;i<idx;i++){ if(catLevel(cats[i])===1)s+=agg(period,cats[i]); } return s; }
+    return childSum(period,cat,lv);
+  }
+  function baseEntrada(period){
+    const c01T=cats.find(c=>/01T/.test(c));
+    if(c01T)return Math.abs(agg(period,c01T))||1;
+    let entradas=0; cats.forEach(c=>{ if(catLevel(c)===1){ const v=agg(period,c); if(v>0)entradas+=v; }});
+    return Math.abs(entradas)||1;
+  }
+  function compute(ps){
+    const ms=[...ps].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
+    let entradas=0, saidas=0;
+    cats.forEach(c=>{ if(catLevel(c)===1){ const v=ms.reduce((s,p)=>s+agg(p,c),0); if(v>=0)entradas+=v; else saidas+=v; }});
+    const saldo=entradas+saidas;
+    const saldoFinal=cats.filter(c=>catLevel(c)===0).pop();
+    const final=saldoFinal?ms.reduce((s,p)=>s+agg(p,saldoFinal),0):saldo;
+    const lbs=ms.map(p=>p.replace('/20','/'));
+    const entArr=ms.map(p=>{ let t=0; cats.forEach(c=>{ if(catLevel(c)===1){ const v=agg(p,c); if(v>0)t+=v; }}); return t; });
+    const saiArr=ms.map(p=>{ let t=0; cats.forEach(c=>{ if(catLevel(c)===1){ const v=agg(p,c); if(v<0)t+=v; }}); return t; });
+    const salArr=entArr.map((v,i)=>v+saiArr[i]);
+    return{entradas,saidas,saldo,final,lbs,entArr,saiArr,salArr,n:ms.length||1};
+  }
+  let chartReady=false;
+  function updateCards(K){
+    const set=(id,txt,cls)=>{const e=el(id); if(!e)return; e.textContent=txt; e.className='kpi-value'+(cls?' '+cls:'');};
+    set('dfc-kv-ent',fK(K.entradas),'gn'); set('dfc-kv-sai',fK(K.saidas),'rd');
+    set('dfc-kv-sal',fK(K.saldo),K.saldo>=0?'gn':'rd'); set('dfc-kv-fin',fK(K.final),K.final>=0?'gn':'rd');
+    const e=el('dfc-kv-med'); if(e)e.textContent=fK(K.saldo/K.n);
+  }
+  function createChart(K){
+    if(typeof Chart==='undefined')return;
+    killCharts();
+    const ctx=el('c-dfc-flow'); if(!ctx)return;
+    const ch=new Chart(ctx,{type:'bar',data:{labels:K.lbs,datasets:[{label:'Entradas',data:K.entArr},{label:'Saídas',data:K.saiArr},{label:'Saldo',data:K.salArr,type:'line',tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},datalabels:{display:false}},scales:{y:{ticks:{callback:v=>fK(v)}}}}});
+    S.charts.push(ch);
+  }
+  function buildT(){
+    const ms=[...selP].sort((a,b)=>periods.indexOf(a)-periods.indexOf(b));
+    S.dfcView={selP,isAcum,showAV,showAH};
+    const K=compute(selP); updateCards(K); if(chartReady) createChart(K); else {createChart(K); chartReady=true;}
+    const fb=el('dfc-active-filters'); if(fb){fb.innerHTML=`<span style="font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-right:4px">Filtros:</span>`+(selP.size===periods.length?'<span class="badge bg-bl">Acumulado</span>':ms.map(p=>`<span class="badge bg-bl">${p}</span>`).join(''));}
+    let h=`<div class="dre-outer"><div class="dre-scrollbar-track" id="dfc-sbt"><div class="dre-scrollbar-thumb" id="dfc-sbth"></div></div><div class="dre-scroll" id="dfc-scr"><table class="dre-t"><thead><tr><th class="tl">Categoria</th>`;
+    if(isAcum){h+=`<th>Total (R$)</th>`; if(showAV)h+=`<th style="color:var(--pu)">A.V.%</th>`;}
+    else{ms.forEach((m,i)=>{h+=`<th>${m}</th>`; if(showAV)h+=`<th style="color:var(--pu)">A.V.%</th>`; if(showAH&&i>0)h+=`<th style="color:var(--am)">A.H.%</th>`;}); if(ms.length>1)h+=`<th>Total</th>`;}
+    h+=`</tr></thead><tbody>`;
+    cats.forEach((cat,i)=>{
+      const rc=rClass(cat), lv=catLevel(cat); let hide=false,ci=i;
+      for(let d=0;d<8;d++){const pp=groupMap[ci];if(!pp)break;if(collapsed.has(pp)){hide=true;break;}ci=cats.indexOf(pp);if(ci<0)break;}
+      const canCol=lv<=3,isCol=collapsed.has(cat);
+      const tg=canCol?`<button class="tg${isCol?' col':''}" onclick="W._dfcTog('${cat.replace(/'/g,"\\'").replace(/\//g,'\\/')}',${i})">${isCol?'▶':'▼'}</button>`:`<span style="display:inline-block;width:24px"></span>`;
+      h+=`<tr class="${rc}${hide?' hrow':''}" data-dfci="${i}"><td>${tg}${cat}</td>`;
+      if(isAcum){ const tv=ms.reduce((s,m)=>s+agg(m,cat),0), b=ms.reduce((s,m)=>s+baseEntrada(m),0)||1; h+=`<td>${fmt(tv)}</td>`; if(showAV)h+=`<td class="avc">${(tv/b*100).toFixed(1)}%</td>`; }
+      else{ let total=0; ms.forEach((m,mi)=>{const mv=agg(m,cat); total+=mv; h+=`<td>${fmt(mv)}</td>`; if(showAV)h+=`<td class="avc">${(mv/baseEntrada(m)*100).toFixed(1)}%</td>`; if(showAH&&mi>0){const pv=agg(ms[mi-1],cat); h+=pv?`<td class="ahc ${((mv-pv)>=0)?'ahp':'ahn'}">${((mv-pv)/Math.abs(pv)*100).toFixed(1)}%</td>`:`<td class="ahc" style="color:var(--tx3)">—</td>`; }}); if(ms.length>1)h+=`<td>${fmt(total)}</td>`; }
+      h+=`</tr>`;
+    });
+    h+=`</tbody></table></div></div>`; el('dfc-ta').innerHTML=h; initScrollSync('dfc-sbt','dfc-sbth','dfc-scr');
+  }
+  const fb=meta?`<div class="file-bar"><span>📄</span><div class="file-bar-name">${meta.name}</div><div class="file-bar-date">${meta.date}</div><button class="btn btn-sm" style="margin-left:auto;background:var(--rdb);color:var(--rd);border:1px solid rgba(185,28,28,.2)" onclick="deleteData('dfc')">🗑 Excluir</button><button class="btn btn-sm btn-outline" onclick="openUp('dfc')">↩ Substituir</button></div>`:'';
+  con.innerHTML=`${fb}<div id="dfc-active-filters" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 14px;background:var(--sf);border:1px solid var(--bd2);border-radius:var(--rs);box-shadow:var(--sh)"></div><div class="kpi-grid"><div class="kpi kpi-gn"><div class="kpi-label">Entradas de Caixa</div><div class="kpi-value gn" id="dfc-kv-ent">—</div><div class="kpi-sub">Somatório positivo</div></div><div class="kpi kpi-rd"><div class="kpi-label">Saídas de Caixa</div><div class="kpi-value rd" id="dfc-kv-sai">—</div><div class="kpi-sub">Somatório negativo</div></div><div class="kpi"><div class="kpi-label">Saldo do Período</div><div class="kpi-value" id="dfc-kv-sal">—</div><div class="kpi-sub">Entradas + saídas</div></div><div class="kpi"><div class="kpi-label">Saldo Final</div><div class="kpi-value" id="dfc-kv-fin">—</div><div class="kpi-sub">Último totalizador</div></div><div class="kpi"><div class="kpi-label">Saldo Médio/Mês</div><div class="kpi-value bl" id="dfc-kv-med">—</div><div class="kpi-sub">Média do saldo</div></div></div><div class="chart-card" style="margin-bottom:14px"><div class="chart-title">Entradas, Saídas e Saldo de Caixa</div><div style="position:relative;height:240px"><canvas id="c-dfc-flow"></canvas></div></div><div class="filter-card"><div class="filter-row"><span class="filter-label">Período <span class="filter-hint">— Shift+clique para múltiplos</span></span><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-tog on" id="dfc-btn-acum" onclick="W._dfcAcum()">Acumulado</button><button class="btn-tog" id="dfc-btn-av" onclick="W._dfcAV()">A. Vertical %</button><button class="btn-tog" id="dfc-btn-ah" onclick="W._dfcAH()">A. Horizontal %</button></div></div><div class="pills" id="dfc-pills">${periods.map((p,i)=>`<span class="pill active" data-i="${i}" data-p="${p}" onclick="W._dfcP(event,'${p}',${i})">${p}</span>`).join('')}</div></div><div id="dfc-ta"></div>`;
+  buildT();
+  W._dfcP=(e,p,i)=>{ if(e.shiftKey&&lastI>=0){const lo=Math.min(lastI,i),hi=Math.max(lastI,i); periods.slice(lo,hi+1).forEach(x=>selP.add(x));} else if(!e.shiftKey) selP=selP.has(p)&&selP.size>1?new Set([...selP].filter(x=>x!==p)):new Set([p]); else selP.has(p)&&selP.size>1?selP.delete(p):selP.add(p); lastI=i; isAcum=selP.size===periods.length; el('dfc-btn-acum').classList.toggle('on',isAcum); document.querySelectorAll('#dfc-pills .pill').forEach(x=>x.classList.toggle('active',selP.has(x.dataset.p))); buildT(); };
+  W._dfcAcum=()=>{ isAcum=true; selP=new Set(periods); el('dfc-btn-acum').classList.add('on'); document.querySelectorAll('#dfc-pills .pill').forEach(x=>x.classList.add('active')); buildT(); };
+  W._dfcAV=()=>{ showAV=!showAV; el('dfc-btn-av').classList.toggle('on',showAV); buildT(); };
+  W._dfcAH=()=>{ showAH=!showAH; el('dfc-btn-ah').classList.toggle('on',showAH); buildT(); };
+  W._dfcTog=(cat,idx)=>{ if(collapsed.has(cat))collapsed.delete(cat); else collapsed.add(cat); buildT(); };
 }
 
 /* ═══════════════════════ RENDER GERENCIAL ═══════════════════════ */
@@ -1978,14 +2087,14 @@ let _pdfType=null;
 
 function openPdfFilter(type){
   _pdfType=type;
-  el('pdf-filter-title').textContent=type==='cc'?'📄 Exportar DRE por Centro de Custo':'📄 Exportar DRE Gerencial';
+  el('pdf-filter-title').textContent=type==='cc'?'📄 Exportar DRE por Centro de Custo':(type==='dfc'?'📄 Exportar DFC Gerencial':'📄 Exportar DRE Gerencial');
 
-  const p=type==='cc'?S.parsed.cc:S.parsed.ger;
+  const p=type==='cc'?S.parsed.cc:(type==='dfc'?S.parsed.dfc:S.parsed.ger);
   if(!p){ toast('Nenhum dado disponível','error'); return; }
   const periods=p.periods;
 
   // Pre-fill from current page state
-  const curView = type==='ger' ? S.gerView : S.ccView;
+  const curView = type==='ger' ? S.gerView : (type==='dfc'?S.dfcView:S.ccView);
   const curAcum = curView ? curView.isAcum : false;
   const curSelP = curView ? curView.selP : null;
 
@@ -2050,6 +2159,10 @@ function openPdfFilter(type){
     const fonteExt=el('pdf-fonte-ext'); const fonteInt=el('pdf-fonte-int');
     const curFonte=S.gerView.fonte||S.fonte||'interna';
     if(fonteExt&&fonteInt){ fonteExt.checked=curFonte==='externa'; fonteInt.checked=curFonte!=='externa'; }
+  } else if(type==='dfc'){
+    el('pdf-opt-av').checked=S.dfcView.showAV||false;
+    el('pdf-opt-ah').checked=S.dfcView.showAH||false;
+    if(ahLabel) ahLabel.style.display='flex';
   } else {
     el('pdf-opt-av').checked=S.ccView.showAV||false;
     el('pdf-opt-ah').checked=false;
@@ -2065,11 +2178,11 @@ function openPdfFilter(type){
       const active=[...document.querySelectorAll('#pdf-cc-pills .chip.active')].map(e=>e.dataset.cc).filter(c=>c!=='total');
       selCC=active.length?active:'total';
     }
-    const showAV=(type==='ger'||type==='cc')&&el('pdf-opt-av').checked;
-    const showAH=type==='ger'&&el('pdf-opt-ah').checked;
+    const showAV=(type==='ger'||type==='cc'||type==='dfc')&&el('pdf-opt-av').checked;
+    const showAH=(type==='ger'||type==='dfc')&&el('pdf-opt-ah').checked;
     const pdfFonte="interna";
     // selP must always have values: use all periods as fallback for acum
-    const finalSelP=selP&&selP.length?selP:(type==='ger'&&S.parsed.ger?S.parsed.ger.periods:[]);
+    const finalSelP=selP&&selP.length?selP:(type==='ger'&&S.parsed.ger?S.parsed.ger.periods:(type==='dfc'&&S.parsed.dfc?S.parsed.dfc.periods:[]));
     return{selP:finalSelP, selCC, showAV, showAH, isAcum:pdfAcum, fonte:pdfFonte};
   };
 
@@ -2099,7 +2212,7 @@ async function exportPDF(type, cfg){
     const margin=13, cW=PW-(margin*2);
     let y=margin;
     const now=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});
-    const typeLabel=type==='cc'?'DRE por Centro de Custo':'DRE Gerencial';
+    const typeLabel=type==='cc'?'DRE por Centro de Custo':(type==='dfc'?'DFC Gerencial':'DRE Gerencial');
 
     function newPage(){ doc.addPage(); y=margin; pageHdr(); }
     function chkY(n=20){ if(y+n>PH-14) newPage(); }
@@ -2416,6 +2529,39 @@ async function exportPDF(type, cfg){
           y+=5.5;
         }
       });
+    }
+
+
+    /* ══════ DFC ══════ */
+    if(type==='dfc'){
+      const p=S.parsed.dfc; if(!p) throw new Error('Dados não encontrados');
+      const{cats,byPeriod,periods}=p;
+      const selPer=cfg.isAcum?periods:(cfg.selP||periods).filter(Boolean);
+      const mCols=selPer.length?selPer:periods;
+      function dRaw(period,cat){ return (byPeriod[period]||{})[cat]||0; }
+      function dChild(period,cat,lv){
+        const idx=cats.indexOf(cat); if(idx<0)return dRaw(period,cat);
+        let childLevel=-1; for(let i=idx+1;i<cats.length;i++){const clv=catLevel(cats[i]); if(clv<=lv)break; if(childLevel===-1)childLevel=clv;}
+        if(childLevel===-1)return dRaw(period,cat);
+        let t=0,f=false; for(let i=idx+1;i<cats.length;i++){const c=cats[i],clv=catLevel(c); if(clv<=lv)break; if(clv===childLevel){t+=dAgg(period,c);f=true;}}
+        return f?t:dRaw(period,cat);
+      }
+      function dAgg(period,cat){ const lv=catLevel(cat), idx=cats.indexOf(cat); if(lv===0){let s=0; for(let i=0;i<idx;i++){if(catLevel(cats[i])===1)s+=dAgg(period,cats[i]);} return s;} return dChild(period,cat,lv); }
+      function dBase(period){const c01T=cats.find(c=>/01T/.test(c)); if(c01T)return Math.abs(dAgg(period,c01T))||1; let e=0; cats.forEach(c=>{if(catLevel(c)===1){const v=dAgg(period,c); if(v>0)e+=v;}}); return Math.abs(e)||1;}
+      let entradas=0,saidas=0; cats.forEach(c=>{if(catLevel(c)===1){const v=mCols.reduce((s,m)=>s+dAgg(m,c),0); if(v>=0)entradas+=v; else saidas+=v;}});
+      const saldo=entradas+saidas; const finalCat=cats.filter(c=>catLevel(c)===0).pop(); const final=finalCat?mCols.reduce((s,m)=>s+dAgg(m,finalCat),0):saldo;
+      secTit('Resumo do Fluxo de Caixa');
+      const kpis=[['Entradas',fK(entradas)],['Saídas',fK(saidas)],['Saldo do Período',fK(saldo)],['Saldo Final',fK(final)]];
+      const kw=cW/4,kh=20; kpis.forEach((k,idx)=>{const x=margin+idx*kw; doc.setFillColor(255,255,255); doc.setDrawColor(210,215,225); doc.roundedRect(x,y,kw-2,kh,1.5,1.5,'FD'); doc.setFillColor(idx===1?185:13,idx===1?28:42,idx===1?28:94); doc.roundedRect(x,y,kw-2,1.5,.5,.5,'F'); doc.setFontSize(6.5); doc.setFont('helvetica','bold'); doc.setTextColor(120,120,140); doc.text(k[0].toUpperCase(),x+3,y+6); doc.setFontSize(11); doc.setTextColor(idx===1?185:13,idx===1?28:42,idx===1?28:94); doc.text(k[1],x+3,y+14);}); y+=kh+10;
+      secTit('Demonstrativo de Fluxo de Caixa — '+(mCols.length===periods.length?'Acumulado':mCols.join(', ')));
+      const showAVpdf=!!cfg.showAV, showAHpdf=!!cfg.showAH;
+      const colCat=88; let dataCols=cfg.isAcum?1+(showAVpdf?1:0):mCols.length*(1+(showAVpdf?1:0))+(showAHpdf?Math.max(0,mCols.length-1):0)+(mCols.length>1?1:0);
+      const colW=(cW-colCat)/Math.max(dataCols,1);
+      doc.setFillColor(236,237,242); doc.rect(margin,y,cW,6,'F'); doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(82,82,92); doc.text('CATEGORIA',margin+2,y+4.5); let hx=margin+colCat;
+      if(cfg.isAcum){ doc.text('TOTAL',hx+colW-1,y+4.5,{align:'right'}); hx+=colW; if(showAVpdf){doc.text('AV%',hx+colW-1,y+4.5,{align:'right'});} }
+      else{ mCols.forEach((m,i)=>{doc.text(m,hx+colW-1,y+4.5,{align:'right'});hx+=colW;if(showAVpdf){doc.text('AV%',hx+colW-1,y+4.5,{align:'right'});hx+=colW;}if(showAHpdf&&i>0){doc.text('AH%',hx+colW-1,y+4.5,{align:'right'});hx+=colW;}}); if(mCols.length>1)doc.text('TOTAL',hx+colW-1,y+4.5,{align:'right'});}
+      y+=6.5;
+      cats.forEach(cat=>{ const cells=[]; if(cfg.isAcum){const tv=mCols.reduce((s,m)=>s+dAgg(m,cat),0), b=mCols.reduce((s,m)=>s+dBase(m),0)||1; cells.push(fmtPdf(tv)); if(showAVpdf)cells.push((tv/b*100).toFixed(1)+'%');} else {let total=0; mCols.forEach((m,i)=>{const v=dAgg(m,cat); total+=v; cells.push(fmtPdf(v)); if(showAVpdf)cells.push((v/dBase(m)*100).toFixed(1)+'%'); if(showAHpdf&&i>0){const pv=dAgg(mCols[i-1],cat); cells.push(pv?((v-pv)/Math.abs(pv)*100).toFixed(1)+'%':'—');}}); if(mCols.length>1)cells.push(fmtPdf(total));} paintRow(cat,cells,colCat,cells.map(()=>colW)); });
     }
 
     /* ══════ CC ══════ */
