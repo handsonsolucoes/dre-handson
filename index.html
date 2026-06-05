@@ -2353,22 +2353,76 @@ async function exportPDF(type, cfg){
 
     // Row painter helper
     function paintRow(cat, cells, colCat, colWidths){
-      chkY(5.5);
       const rc=rClass(cat); const lv=catLevel(cat);
-      const indent=lv>=3?5:lv>=2?2.5:0;
-      const bg=rc==='rs'?[232,240,251]:rc==='rt'?[233,234,240]:[255,255,255];
-      doc.setFillColor(...bg); doc.rect(margin,y,cW,5.5,'F');
-      doc.setFontSize(rc==='rt'||rc==='rs'?7.5:7);
-      doc.setFont('helvetica',rc==='rt'||rc==='rs'?'bold':'normal');
-      doc.setTextColor(rc==='rs'?30:22,rc==='rs'?79:22,rc==='rs'?170:26);
-      doc.text(cat.substring(0,42),margin+2+indent,y+3.9);
-      doc.setTextColor(22,22,26);
+      // Row height by level
+      const rh=lv===0?7:lv===1?6.5:5.5;
+      chkY(rh);
+
+      // Background colors by level
+      const bg=lv===0?[13,42,94]      // T-row: dark blue
+              :lv===1?[235,240,250]    // Group: light blue
+              :lv===2?[248,249,252]    // Sub-group: very light
+              :[255,255,255];          // Leaf: white
+      doc.setFillColor(...bg);
+      doc.rect(margin,y,cW,rh,'F');
+
+      // Bottom border for T-rows and group rows
+      if(lv<=1){
+        doc.setDrawColor(lv===0?8:180, lv===0?28:190, lv===0?70:220);
+        doc.setLineWidth(lv===0?0.4:0.15);
+        doc.line(margin,y+rh,margin+cW,y+rh);
+      } else {
+        // thin separator for sub-rows
+        doc.setDrawColor(228,230,238); doc.setLineWidth(0.1);
+        doc.line(margin,y+rh,margin+cW,y+rh);
+      }
+
+      // Indentation
+      const indent=lv>=3?6:lv===2?3:lv===1?1.5:0;
+      // Left accent bar for level 1 groups
+      if(lv===1){
+        doc.setFillColor(13,42,94);
+        doc.rect(margin,y,1.5,rh,'F');
+      }
+
+      // Label text
+      const textY=y+rh*0.62;
+      if(lv===0){
+        doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+      } else if(lv===1){
+        doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(13,42,94);
+      } else if(lv===2){
+        doc.setFontSize(6.8); doc.setFont('helvetica','bold'); doc.setTextColor(40,50,80);
+      } else {
+        doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(70,75,95);
+      }
+      const maxCatChars=Math.floor((colCat-2-indent)/1.8);
+      doc.text(cat.substring(0,maxCatChars),margin+2+indent,textY);
+
+      // Value cells
       let xCur=margin+colCat;
       cells.forEach((val,ci)=>{
         xCur+=colWidths[ci];
-        doc.text(val,xCur-1,y+3.9,{align:'right'});
+        const isNeg=val.startsWith('- ');
+        const isPct=val.endsWith('%');
+        if(lv===0){
+          // T-row: white values
+          doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+        } else if(isPct){
+          doc.setFontSize(6.5); doc.setFont('helvetica','normal');
+          doc.setTextColor(100,100,120);
+        } else if(isNeg){
+          doc.setFontSize(lv<=1?7:6.5);
+          doc.setFont('helvetica',lv<=1?'bold':'normal');
+          doc.setTextColor(185,28,28);
+        } else {
+          doc.setFontSize(lv<=1?7:6.5);
+          doc.setFont('helvetica',lv<=1?'bold':'normal');
+          doc.setTextColor(15,23,42);
+        }
+        doc.text(val,xCur-1,textY,{align:'right'});
       });
-      y+=5.5;
+      y+=rh;
     }
 
     setMsg('Montando cabeçalho…',''); setBar(8);
@@ -2456,71 +2510,97 @@ async function exportPDF(type, cfg){
       const pdfSelectedCMVCats=(S.cmvCats&&S.cmvCats.length)?S.cmvCats:[];
       let cmvSumPdf=0;
       pdfSelectedCMVCats.forEach(c=>{ cmvSumPdf+=mCols.reduce((s,m)=>s+pdfAgg(m,c),0); });
-      let impSumPdf=0;
-      cats.forEach(c=>{ if(/^02\.1/.test(c)) impSumPdf+=mCols.reduce((s,m)=>s+pdfAgg(m,c),0); });
+      // Impostos: mesma lógica do dashboard — nível 2 "02.1" para venda, nível 1 "07" para lucro
+      const c021pdf=cats.find(c=>/^02\.1\b/.test(c))||'';
+      const c07grpPdf=cats.find(c=>/^07\s/.test(c))||'';
+      const impVendaPdf=c021pdf?mCols.reduce((s,m)=>s+pdfAgg(m,c021pdf),0):0;
+      const impTrimPdf=c07grpPdf?mCols.reduce((s,m)=>s+pdfAgg(m,c07grpPdf),0):0;
+      const impSumPdf=impVendaPdf+impTrimPdf;
       const pCMV=allRB?Math.abs(cmvSumPdf)/allRB*100:0;
       const pImp=allRB?Math.abs(impSumPdf)/allRB*100:0;
+      const pImpVendaPdf=allRB?Math.abs(impVendaPdf)/allRB*100:0;
+      const pImpTrimPdf=allRB?Math.abs(impTrimPdf)/allRB*100:0;
       const mOp=allRB?allOP/allRB*100:0,mLiq=allRB?allLQ/allRB*100:0,mBr=allRB?allLB/allRB*100:0;
 
-      // KPIs (always from full totals for context)
+      // KPIs — Resumo Executivo
       secTit('Resumo Executivo');
+
+      // Cards: 4 por linha, 2 linhas. Card de impostos tem breakdown extra.
       const kpis=[
-        {l:'Receita Bruta',v:fK(allRB),s:'Acumulado total'},
-        {l:'Receita Líquida',v:fK(allRL),s:allRB?(allRL/allRB*100).toFixed(1)+'% da Bruta':'—'},
-        {l:'% CMV',v:pCMV.toFixed(1)+'%',s:pCMV>55?'Acima do ideal':'Ok'},
-        {l:'% Impostos',v:pImp.toFixed(1)+'%',s:'Sobre rec. bruta'},
-        {l:'Mg. Contribuição',v:fK(allLB),s:'Mg Contrib.: '+mBr.toFixed(1)+'%'},
-        {l:'Result. Oper.',v:fK(allOP),s:'Mg Op.: '+mOp.toFixed(1)+'%'},
-        {l:'Resultado Final',v:fK(allLQ),s:'Mg Final: '+mLiq.toFixed(1)+'%'},
-        {l:'Rec. Média/Mês',v:fK(allRB/(mCols.length||1)),s:mCols.length+' meses'},
+        {l:'Receita Bruta',    v:fK(allRB),               s:'Período selecionado',         ac:[13,42,94],   vc:[13,42,94]},
+        {l:'Receita Líquida',  v:fK(allRL),                s:allRB?(allRL/allRB*100).toFixed(1)+'% da Bruta':'—', ac:[13,42,94],   vc:null},
+        {l:'% CMV',            v:pCMV.toFixed(1)+'%',      s:pCMV>55?'Acima do ideal':'Dentro do padrão',   ac:[185,28,28],  vc:[185,28,28]},
+        {l:'Impostos Totais',  v:pImp.toFixed(1)+'%',      s:fK(Math.abs(impSumPdf))+' s/ rec. bruta',      ac:[146,64,14],  vc:[146,64,14], breakdown:true},
+        {l:'Mg. Contribuição', v:fK(allLB),                s:'Mg. Contrib.: '+mBr.toFixed(1)+'%',           ac:[21,128,61],  vc:null},
+        {l:'Result. Operac.',  v:fK(allOP),                s:'Mg. Op.: '+mOp.toFixed(1)+'%',                ac:[21,128,61],  vc:null},
+        {l:'Resultado Final',  v:fK(allLQ),                s:'Mg. Final: '+mLiq.toFixed(1)+'%',             ac:[21,128,61],  vc:null},
+        {l:'Rec. Média/Mês',   v:fK(allRB/(mCols.length||1)), s:mCols.length+' meses selecionados',         ac:[184,146,42], vc:[13,42,94]},
       ];
-      // Dashboard-style KPI cards: white bg, accent top border, label/value/sub
-      const kw=cW/4, kh=22;
-      const KPI_ACCENT={
-        0:[13,42,94],   // Receita Bruta - blue (--ac)
-        1:[13,42,94],   // Receita Líquida
-        2:[185,28,28],  // % CMV - red
-        3:[92,64,10],   // % Impostos - amber
-        4:[21,128,61],  // Mg. Contribuição - green
-        5:[21,128,61],  // Result. Oper.
-        6:[21,128,61],  // Resultado Final
-        7:[184,146,42], // Rec. Média/Mês - gold
-      };
-      const KPI_VAL_COLOR={
-        0:[13,42,94], 1:null, 2:[185,28,28], 3:[146,64,14],
-        4:null, 5:null, 6:null, 7:[13,42,94]
-      };
+
+      const kw=cW/4;
+      // Card de impostos tem breakdown → altura maior
+      const khNormal=24, khImp=32;
+      // Calcular posição y de cada linha
+      const row0h=Math.max(...kpis.slice(0,4).map(k=>k.breakdown?khImp:khNormal));
+      const row1h=Math.max(...kpis.slice(4,8).map(k=>k.breakdown?khImp:khNormal));
+      chkY(row0h+row1h+8);
+
       kpis.forEach((k,idx)=>{
-        if(idx===0||idx===4) chkY(kh+4);
-        const col=idx%4, row=Math.floor(idx/4), x=margin+col*kw, yy=y+row*(kh+4);
-        // White card background with subtle shadow simulation (light gray border)
-        doc.setFillColor(255,255,255); 
-        doc.setDrawColor(210,215,225);
-        doc.setLineWidth(0.25);
+        const col=idx%4;
+        const row=Math.floor(idx/4);
+        const x=margin+col*kw;
+        const kh=k.breakdown?khImp:khNormal;
+        const rowY=row===0 ? y : y+row0h+4;
+        const yy=rowY;
+
+        // Card background
+        doc.setFillColor(255,255,255);
+        doc.setDrawColor(218,222,230);
+        doc.setLineWidth(0.2);
         doc.roundedRect(x,yy,kw-2,kh,1.5,1.5,'FD');
-        // Accent top border (3px colored stripe)
-        const ac=KPI_ACCENT[idx]||[184,146,42];
-        doc.setFillColor(ac[0],ac[1],ac[2]);
-        doc.roundedRect(x,yy,kw-2,1.5,0.5,0.5,'F');
-        // Label (uppercase, small, gray)
-        doc.setFontSize(6.5); doc.setFont('helvetica','bold'); doc.setTextColor(120,120,140);
-        doc.text(k.l.toUpperCase(),x+3,yy+6);
-        // Value (large, bold, colored)
-        const vc=KPI_VAL_COLOR[idx];
-        if(vc) doc.setTextColor(vc[0],vc[1],vc[2]); else {
-          // auto-color for values: negative=red, positive=green, neutral=dark
-          const numVal=parseFloat(k.v.replace(/[^0-9,.-]/g,'').replace(',','.'));
-          if(!isNaN(numVal)&&numVal<0) doc.setTextColor(185,28,28);
-          else if(!isNaN(numVal)&&numVal>0&&(idx===1||idx===4||idx===5||idx===6)) doc.setTextColor(21,128,61);
+
+        // Accent top stripe
+        doc.setFillColor(k.ac[0],k.ac[1],k.ac[2]);
+        doc.roundedRect(x,yy,kw-2,1.8,0.5,0.5,'F');
+
+        // Label
+        doc.setFontSize(6); doc.setFont('helvetica','bold'); doc.setTextColor(130,130,150);
+        doc.text(k.l.toUpperCase(),x+3,yy+6.5);
+
+        // Value
+        if(k.vc) doc.setTextColor(k.vc[0],k.vc[1],k.vc[2]);
+        else {
+          const nv=parseFloat(k.v.replace(/[^0-9,.-]/g,'').replace(',','.'));
+          if(!isNaN(nv)&&nv<0) doc.setTextColor(185,28,28);
+          else if(!isNaN(nv)&&nv>0&&(idx===1||idx===4||idx===5||idx===6)) doc.setTextColor(21,128,61);
           else doc.setTextColor(15,23,42);
         }
-        doc.setFontSize(11); doc.setFont('helvetica','bold');
-        doc.text(k.v,x+3,yy+14);
-        // Sub text (small, light gray)
-        doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(144,144,160);
-        doc.text(k.s,x+3,yy+19.5);
+        doc.setFontSize(12); doc.setFont('helvetica','bold');
+        doc.text(k.v,x+3,yy+15);
+
+        // Sub
+        doc.setFontSize(5.5); doc.setFont('helvetica','normal'); doc.setTextColor(150,150,165);
+        doc.text(k.s,x+3,yy+20);
+
+        // Breakdown de impostos
+        if(k.breakdown){
+          const byY=yy+22.5;
+          // Linha divisória
+          doc.setDrawColor(220,220,230); doc.setLineWidth(0.15);
+          doc.line(x+2,byY,x+kw-4,byY);
+          // Sobre Venda
+          doc.setFontSize(5.5); doc.setFont('helvetica','bold'); doc.setTextColor(130,130,150);
+          doc.text('S/ VENDA',x+3,byY+4);
+          doc.setTextColor(185,28,28);
+          doc.text(pImpVendaPdf.toFixed(1)+'%',x+kw-8,byY+4,'right');
+          // Sobre Lucro
+          doc.setTextColor(130,130,150);
+          doc.text('S/ LUCRO',x+3,byY+8.5);
+          doc.setTextColor(146,64,14);
+          doc.text(pImpTrimPdf.toFixed(1)+'%',x+kw-8,byY+8.5,'right');
+        }
       });
-      y+=2*(kh+4)+10;
+      y+=row0h+row1h+14;
 
       setMsg('Capturando gráficos…',''); setBar(30);
       secTit('Evolução das Margens (%)');
@@ -2571,15 +2651,15 @@ async function exportPDF(type, cfg){
         if(mCols.length>1){ hdrLabels.push('TOTAL'); if(showAVpdf) hdrLabels.push('AV%'); }
       }
 
-      // Paint table header
-      doc.setFillColor(236,237,242); doc.rect(margin,y,cW,6,'F');
-      doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(82,82,92);
-      doc.text('CATEGORIA',margin+2,y+4.5);
+      // Paint table header — dark blue bar
       const eachW=hdrLabels.length?(cW-colCat)/hdrLabels.length:cW-colCat;
+      doc.setFillColor(13,42,94); doc.rect(margin,y,cW,7,'F');
+      doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+      doc.text('CATEGORIA',margin+3,y+4.8);
       hdrLabels.forEach((lbl,li)=>{
-        doc.text(lbl.substring(0,10),margin+colCat+(li+1)*eachW-1,y+4.5,{align:'right'});
+        doc.text(lbl.substring(0,10),margin+colCat+(li+1)*eachW-1,y+4.8,{align:'right'});
       });
-      y+=6.5;
+      y+=7.5;
 
       // Paint rows - skip hidden children, inject Faturamento Preenchido
       const hiddenInPdf=new Set(pdfExt.fat01xChildren);
