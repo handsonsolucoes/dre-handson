@@ -1275,12 +1275,21 @@ function renderGer(con, parsed, meta, fonte){
     let cmvSum=0;
     selectedCMVCats().forEach(c=>{ cmvSum+=sumCat(c); });
 
-    // Impostos: sum of 02.1 rows
-    let impSum=0;
-    cats.forEach(c=>{ if(/^02\.1/.test(c)) impSum+=sumCat(c); });
+    // Impostos: NÃO usar T-rows (que são cumulativos de tudo antes).
+    // Usar o nó-pai direto de cada grupo, que pvAgg agrega pelos filhos.
+    // Sobre Venda: nível 2 "02.1 Impostos Sobre Vendas" — pvAgg soma seus filhos (02.1.x)
+    const c021cat=cats.find(c=>/^02\.1\b/.test(c))||'';
+    const impVendaSum=sumCat(c021cat);
+    // Sobre Lucro: nível 1 "07 Impostos sobre Resultado" — pvAgg soma seus filhos (07.x)
+    // Nunca usar c07T aqui: 07T é T-row cumulativo que soma 01+02+...+07 = resultado final
+    const c07grp=cats.find(c=>/^07\s/.test(c))||'';
+    const impTrimSum=sumCat(c07grp);
+    const impSum=impVendaSum+impTrimSum;
 
     const pCMV=allRB?Math.abs(cmvSum)/allRB*100:0;
     const pImp=allRB?Math.abs(impSum)/allRB*100:0;
+    const pImpVenda=allRB?Math.abs(impVendaSum)/allRB*100:0;
+    const pImpTrim=allRB?Math.abs(impTrimSum)/allRB*100:0;
     const mOp=allRB?allOP/allRB*100:0;
     const mLiq=allRB?allLQ/allRB*100:0;
     const mBr=allRB?allLB/allRB*100:0;
@@ -1298,7 +1307,8 @@ function renderGer(con, parsed, meta, fonte){
     const recArr=msArr.map(p=>pRB(p));
     const opArr=msArr.map(p=>pvAgg(p,c04T));
     const avg=arr=>arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:0;
-    return{allRB,allRL,allLB,allOP,allLQ,allFinal,pCMV,pImp,mOp,mLiq,mBr,n,
+    return{allRB,allRL,allLB,allOP,allLQ,allFinal,pCMV,pImp,pImpVenda,pImpTrim,
+           impVendaSum,impTrimSum,mOp,mLiq,mBr,n,
            lbs,moArr,mlArr,mcArr,cmvArr,recArr,opArr,
            moMean:mOp,mlMean:mLiq};
   }
@@ -1551,7 +1561,21 @@ function renderGer(con, parsed, meta, fonte){
       <div class="kpi" id="kpi-rb"><div class="kpi-label">Receita Bruta</div><div class="kpi-value bl" id="kv-rb">—</div><div class="kpi-sub" id="ks-rb">Período selecionado</div></div>
       <div class="kpi" id="kpi-rl"><div class="kpi-label">Receita Líquida</div><div class="kpi-value" id="kv-rl">—</div><div class="kpi-sub" id="ks-rl">—</div></div>
       <div class="kpi" id="kpi-cmv"><div class="kpi-label">% CMV</div><div class="kpi-value" id="kv-cmv">—</div><div class="kpi-sub" id="ks-cmv">—</div></div>
-      <div class="kpi" id="kpi-imp"><div class="kpi-label">% Impostos</div><div class="kpi-value" id="kv-imp">—</div><div class="kpi-sub">Sobre receita bruta</div></div>
+      <div class="kpi" id="kpi-imp">
+        <div class="kpi-label">Impostos Totais</div>
+        <div class="kpi-value" id="kv-imp">—</div>
+        <div class="kpi-sub" id="ks-imp-pct">s/ receita bruta</div>
+        <div id="kpi-imp-breakdown" style="display:none;margin-top:8px;padding-top:7px;border-top:1px solid var(--bd2)">
+          <div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px">
+            <span style="color:var(--tx3)">s/ Venda</span>
+            <span style="color:var(--rd)" id="kv-imp-venda">—</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px">
+            <span style="color:var(--tx3)">s/ Lucro</span>
+            <span style="color:var(--am)" id="kv-imp-trim">—</span>
+          </div>
+        </div>
+      </div>
       <div class="kpi" id="kpi-lb"><div class="kpi-label">Mg. Contribuição</div><div class="kpi-value" id="kv-lb">—</div><div class="kpi-sub" id="ks-lb">—</div></div>
       <div class="kpi" id="kpi-op"><div class="kpi-label">Result. Operacional</div><div class="kpi-value" id="kv-op">—</div><div class="kpi-sub" id="ks-op">—</div></div>
       <div class="kpi" id="kpi-lq"><div class="kpi-label">Resultado Líquido</div><div class="kpi-value" id="kv-lq">—</div><div class="kpi-sub" id="ks-lq">—</div></div>
@@ -1605,7 +1629,16 @@ function renderGer(con, parsed, meta, fonte){
     setKV('kv-cmv', K.pCMV.toFixed(1)+'%', K.pCMV>55?'rd':'gn');
     setKC('kpi-cmv', K.pCMV>55?'rd':'gn');
     setKS('ks-cmv', K.pCMV>55?'Acima do ideal':'Dentro do padrão');
-    setKV('kv-imp', K.pImp.toFixed(1)+'%', '');
+    setKV('kv-imp', K.pImp.toFixed(1)+'%', K.pImp>0?'rd':'');
+    setKC('kpi-imp', K.pImp>0?'rd':'');
+    setKS('ks-imp-pct', K.allRB?fK(Math.abs(K.impVendaSum+K.impTrimSum))+' s/ rec. bruta':'—');
+    // Breakdown: mostrar apenas se houver dados
+    (function(){
+      const ev=el('kv-imp-venda'), et=el('kv-imp-trim'), bd=el('kpi-imp-breakdown');
+      if(ev) ev.textContent=K.pImpVenda.toFixed(1)+'%';
+      if(et) et.textContent=K.pImpTrim.toFixed(1)+'%';
+      if(bd) bd.style.display=(K.pImpVenda===0&&K.pImpTrim===0)?'none':'block';
+    })();
     setKV('kv-lb',  fK(K.allLB), K.allLB>=0?'gn':'rd');
     setKC('kpi-lb', K.allLB>=0?'gn':'rd');
     setKS('ks-lb',  'Mg. Contrib.: '+K.mBr.toFixed(1)+'%');
