@@ -1639,12 +1639,10 @@ function renderGer(con, parsed, meta, fonte){
       setKS('ks-imp-pct', K.allRB?fK(activeVal)+' s/ rec. bruta':'—');
       const ev=el('kv-imp-venda'), et=el('kv-imp-trim'), bd=el('kpi-imp-breakdown');
       const lv=el('lbl-imp-venda'), lt=el('lbl-imp-trim');
-      if(ev) ev.textContent=K.pImpVenda.toFixed(1)+'%';
-      if(et) et.textContent=K.pImpTrim.toFixed(1)+'%';
-      if(lv){ lv.style.textDecoration=offV?'line-through':''; lv.style.opacity=offV?'.4':'1'; }
-      if(lt){ lt.style.textDecoration=offT?'line-through':''; lt.style.opacity=offT?'.4':'1'; }
-      if(ev){ ev.style.opacity=offV?'.4':'1'; }
-      if(et){ et.style.opacity=offT?'.4':'1'; }
+      if(ev){ ev.textContent=(offV?'0.0':K.pImpVenda.toFixed(1))+'%'; ev.style.opacity=offV?'.35':'1'; ev.style.textDecoration=offV?'line-through':''; }
+      if(et){ et.textContent=(offT?'0.0':K.pImpTrim.toFixed(1))+'%'; et.style.opacity=offT?'.35':'1'; et.style.textDecoration=offT?'line-through':''; }
+      if(lv){ lv.style.textDecoration=offV?'line-through':''; lv.style.opacity=offV?'.35':'1'; }
+      if(lt){ lt.style.textDecoration=offT?'line-through':''; lt.style.opacity=offT?'.35':'1'; }
       if(bd) bd.style.display=(K.pImpVenda===0&&K.pImpTrim===0)?'none':'block';
       // Store last K for toggle reuse
       W._lastImpK=K;
@@ -2549,7 +2547,13 @@ async function exportPDF(type, cfg){
         {l:'Receita Bruta',    v:fK(allRB),               s:'Período selecionado',         ac:[13,42,94],   vc:[13,42,94]},
         {l:'Receita Líquida',  v:fK(allRL),                s:allRB?(allRL/allRB*100).toFixed(1)+'% da Bruta':'—', ac:[13,42,94],   vc:null},
         {l:'% CMV',            v:pCMV.toFixed(1)+'%',      s:pCMV>55?'Acima do ideal':'Dentro do padrão',   ac:[185,28,28],  vc:[185,28,28]},
-        {l:'Impostos Totais',  v:pImp.toFixed(1)+'%',      s:fK(Math.abs(impSumPdf))+' s/ rec. bruta',      ac:[146,64,14],  vc:[146,64,14], breakdown:true},
+        {l:'Impostos Totais',
+          v:(()=>{ const offV=!!W._impOffVenda,offT=!!W._impOffTrim;
+                   return ((offV?0:pImpVendaPdf)+(offT?0:pImpTrimPdf)).toFixed(1)+'%'; })(),
+          s:(()=>{ const offV=!!W._impOffVenda,offT=!!W._impOffTrim;
+                   const v=(offV?0:Math.abs(impVendaPdf))+(offT?0:Math.abs(impTrimPdf));
+                   return fK(v)+' s/ rec. bruta'; })(),
+          ac:[146,64,14], vc:[146,64,14], breakdown:true},
         {l:'Mg. Contribuição', v:fK(allLB),                s:'Mg. Contrib.: '+mBr.toFixed(1)+'%',           ac:[21,128,61],  vc:null},
         {l:'Result. Operac.',  v:fK(allOP),                s:'Mg. Op.: '+mOp.toFixed(1)+'%',                ac:[21,128,61],  vc:null},
         {l:'Resultado Final',  v:fK(allLQ),                s:'Mg. Final: '+mLiq.toFixed(1)+'%',             ac:[21,128,61],  vc:null},
@@ -2601,22 +2605,37 @@ async function exportPDF(type, cfg){
         doc.setFontSize(5.5); doc.setFont('helvetica','normal'); doc.setTextColor(150,150,165);
         doc.text(k.s,x+3,yy+20);
 
-        // Breakdown de impostos
+        // Breakdown de impostos — respeita estado dos toggles do dashboard
         if(k.breakdown){
           const byY=yy+22.5;
+          const offV=!!W._impOffVenda, offT=!!W._impOffTrim;
           // Linha divisória
           doc.setDrawColor(220,220,230); doc.setLineWidth(0.15);
           doc.line(x+2,byY,x+kw-4,byY);
-          // Sobre Venda
-          doc.setFontSize(5.5); doc.setFont('helvetica','bold'); doc.setTextColor(130,130,150);
-          doc.text('S/ VENDA',x+3,byY+4);
-          doc.setTextColor(185,28,28);
-          doc.text(pImpVendaPdf.toFixed(1)+'%',x+kw-8,byY+4,'right');
-          // Sobre Lucro
-          doc.setTextColor(130,130,150);
-          doc.text('S/ LUCRO',x+3,byY+8.5);
-          doc.setTextColor(146,64,14);
-          doc.text(pImpTrimPdf.toFixed(1)+'%',x+kw-8,byY+8.5,'right');
+
+          // Helper: desenha linha com strike opcional
+          function pdfImpRow(label, pct, rowY, labelColor, valColor, isOff){
+            const alpha=isOff?150:255;
+            // Label
+            doc.setFontSize(5.5); doc.setFont('helvetica','bold');
+            doc.setTextColor(isOff?190:labelColor[0], isOff?190:labelColor[1], isOff?190:labelColor[2]);
+            doc.text(label, x+3, rowY);
+            // Value
+            const valTxt=isOff?'0.0%':pct.toFixed(1)+'%';
+            doc.setTextColor(isOff?190:valColor[0], isOff?190:valColor[1], isOff?190:valColor[2]);
+            doc.text(valTxt, x+kw-8, rowY, 'right');
+            // Strikethrough: linha horizontal sobre label e valor
+            if(isOff){
+              doc.setDrawColor(160,160,170); doc.setLineWidth(0.3);
+              const labelW=doc.getTextWidth(label);
+              const valW=doc.getTextWidth(valTxt);
+              doc.line(x+3, rowY-1.2, x+3+labelW, rowY-1.2);
+              doc.line(x+kw-8-valW, rowY-1.2, x+kw-8, rowY-1.2);
+            }
+          }
+
+          pdfImpRow('S/ VENDA', pImpVendaPdf, byY+4,  [130,130,150], [185,28,28],  offV);
+          pdfImpRow('S/ LUCRO', pImpTrimPdf,  byY+8.5,[130,130,150], [146,64,14],  offT);
         }
       });
       y+=row0h+row1h+14;
