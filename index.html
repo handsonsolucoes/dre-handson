@@ -1567,11 +1567,11 @@ function renderGer(con, parsed, meta, fonte){
         <div class="kpi-sub" id="ks-imp-pct">s/ receita bruta</div>
         <div id="kpi-imp-breakdown" style="display:none;margin-top:8px;padding-top:7px;border-top:1px solid var(--bd2)">
           <div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px">
-            <span style="color:var(--tx3)">s/ Venda</span>
+            <span id="lbl-imp-venda" onclick="W._impTogVenda()" style="color:var(--tx3);cursor:pointer;user-select:none;transition:opacity .15s" title="Clique para incluir/excluir">s/ Venda</span>
             <span style="color:var(--rd)" id="kv-imp-venda">—</span>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px">
-            <span style="color:var(--tx3)">s/ Lucro</span>
+            <span id="lbl-imp-trim" onclick="W._impTogTrim()" style="color:var(--tx3);cursor:pointer;user-select:none;transition:opacity .15s" title="Clique para incluir/excluir">s/ Lucro</span>
             <span style="color:var(--am)" id="kv-imp-trim">—</span>
           </div>
         </div>
@@ -1629,15 +1629,25 @@ function renderGer(con, parsed, meta, fonte){
     setKV('kv-cmv', K.pCMV.toFixed(1)+'%', K.pCMV>55?'rd':'gn');
     setKC('kpi-cmv', K.pCMV>55?'rd':'gn');
     setKS('ks-cmv', K.pCMV>55?'Acima do ideal':'Dentro do padrão');
-    setKV('kv-imp', K.pImp.toFixed(1)+'%', K.pImp>0?'rd':'');
-    setKC('kpi-imp', K.pImp>0?'rd':'');
-    setKS('ks-imp-pct', K.allRB?fK(Math.abs(K.impVendaSum+K.impTrimSum))+' s/ rec. bruta':'—');
-    // Breakdown: mostrar apenas se houver dados
+    // Breakdown impostos com toggle
     (function(){
+      const offV=!!W._impOffVenda, offT=!!W._impOffTrim;
+      const activeImp=(offV?0:K.pImpVenda)+(offT?0:K.pImpTrim);
+      const activeVal=(offV?0:Math.abs(K.impVendaSum))+(offT?0:Math.abs(K.impTrimSum));
+      setKV('kv-imp', activeImp.toFixed(1)+'%', activeImp>0?'rd':'');
+      setKC('kpi-imp', activeImp>0?'rd':'');
+      setKS('ks-imp-pct', K.allRB?fK(activeVal)+' s/ rec. bruta':'—');
       const ev=el('kv-imp-venda'), et=el('kv-imp-trim'), bd=el('kpi-imp-breakdown');
+      const lv=el('lbl-imp-venda'), lt=el('lbl-imp-trim');
       if(ev) ev.textContent=K.pImpVenda.toFixed(1)+'%';
       if(et) et.textContent=K.pImpTrim.toFixed(1)+'%';
+      if(lv){ lv.style.textDecoration=offV?'line-through':''; lv.style.opacity=offV?'.4':'1'; }
+      if(lt){ lt.style.textDecoration=offT?'line-through':''; lt.style.opacity=offT?'.4':'1'; }
+      if(ev){ ev.style.opacity=offV?'.4':'1'; }
+      if(et){ et.style.opacity=offT?'.4':'1'; }
       if(bd) bd.style.display=(K.pImpVenda===0&&K.pImpTrim===0)?'none':'block';
+      // Store last K for toggle reuse
+      W._lastImpK=K;
     })();
     setKV('kv-lb',  fK(K.allLB), K.allLB>=0?'gn':'rd');
     setKC('kpi-lb', K.allLB>=0?'gn':'rd');
@@ -1905,6 +1915,15 @@ function renderGer(con, parsed, meta, fonte){
     buildT();
   };
   W._gAcum=()=>{ isAcum=!isAcum; el('btn-acum').classList.toggle('on',isAcum); buildT(); };
+  W._impOffVenda=false; W._impOffTrim=false;
+  W._impTogVenda=()=>{
+    W._impOffVenda=!W._impOffVenda;
+    if(W._lastImpK) updateKPICards(W._lastImpK);
+  };
+  W._impTogTrim=()=>{
+    W._impOffTrim=!W._impOffTrim;
+    if(W._lastImpK) updateKPICards(W._lastImpK);
+  };
 
   // ── Period group mode: tri/semester buttons act as aggregated columns ─────────
   const QUARTER_MONTHS={
